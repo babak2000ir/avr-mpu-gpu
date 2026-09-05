@@ -1,0 +1,64 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "Build mpu",
+			"command": "C:/AVR/avr8-gnu-toolchain-win32_x86_64/bin/avr-gcc.exe",
+			"args": [
+				"${workspaceFolder}/mpumain.c",
+				"${workspaceFolder}/mpu.c",
+				"-o",
+				"${workspaceFolder}/mpubin.elf",
+				"-mmcu=attiny84",
+				"-DF_CPU=20000000UL",
+				"-Os",
+			],
+			"group": "build",
+			"hide": true,
+			"presentation": {
+				"panel": "shared",
+				"group": "buildAll"
+			},
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"type": "shell",
+			"label": "Build gu",
+			"command": "C:/AVR/avr8-gnu-toolchain-win32_x86_64/bin/avr-gcc.exe",
+			"args": [
+				"${workspaceFolder}/gumain.c",
+				"${workspaceFolder}/gu.c",
+				"-o",
+				"${workspaceFolder}/gubin.elf",
+				"-mmcu=attiny84",
+				"-DF_CPU=20000000UL",
+				"-Os",
+			],
+			"group": "build",
+			"hide": true,
+			"presentation": {
+				"panel": "shared",
+				"group": "buildAll"
+			},
+			"problemMatcher": [
+				"$gcc"
+			]
+		},
+		{
+			"label": "Build all",
+			"dependsOn": [
+				"Build mpu",
+				"Build gu"
+			],
+			"dependsOrder": "sequence",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": []
+		}
+	]
+}

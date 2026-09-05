@@ -1,0 +1,11 @@
+{
+    "terminal.integrated.profiles.windows": {
+        "PowerShell (AVR)": {
+            "source": "PowerShell",
+            "env": {
+                "PATH": "${env:PATH};C:\\AVR\\avr8-gnu-toolchain-win32_x86_64\\bin;c:\\avr\\avrdude;C:\\avr\\gnuwin32\\bin"
+            }
+        }
+    },
+    "terminal.integrated.defaultProfile.windows": "PowerShell (AVR)"
+}

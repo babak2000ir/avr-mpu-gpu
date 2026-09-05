@@ -1,0 +1,25 @@
+{
+    "configurations": [
+        {
+            "name": "avr-gcc",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE",
+                "F_CPU=20000000UL"
+            ],
+            "compilerPath": "C:/AVR/avr8-gnu-toolchain-win32_x86_64/bin/avr-gcc.exe",
+            "cStandard": "gnu11",
+            "cppStandard": "gnu++14",
+            "intelliSenseMode": "windows-gcc-x64",
+            "compilerArgs": [
+                "-mmcu=attiny84",
+                "-Os"
+            ]
+        }
+    ],
+    "version": 4
+}

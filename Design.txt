@@ -1,0 +1,9 @@
+Wiring:
+
+| Signal    | MPU       | GU         |
+| --------- | --------- | ---------- |
+| MOSI / DI | PA6       | PA6        |
+| MISO / DO | PA5       | PA5        |
+| SCK       | PA4       | PA4        |
+| CS        | PA7       | PA7        |
+| READY     | PB0 input | PB0 output |

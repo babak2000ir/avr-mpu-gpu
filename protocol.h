@@ -41,6 +41,28 @@
 #define LINK_ACK_TIMEOUT_MS     10u
 
 /* ============================================================
+ * Graphic Command Types & Constants
+ * ============================================================ */
+
+#define CMD_SET_PIXEL           0x01u
+#define CMD_SET_LINE            0x02u
+#define CMD_SET_RECT            0x03u
+#define CMD_SET_CIRCLE          0x04u
+#define CMD_SET_STRING          0x05u
+
+/* Aliases */
+#define CMD_SETPIXEL            CMD_SET_PIXEL
+#define CMD_SETLINE             CMD_SET_LINE
+#define CMD_SETRECT             CMD_SET_RECT
+#define CMD_SETCIRCLE           CMD_SET_CIRCLE
+#define CMD_SETSTRING           CMD_SET_STRING
+
+/* Color packing/unpacking helpers (4 bits border / low, 4 bits fill / high) */
+#define MAKE_COLOR_BF(border, fill)  (((uint8_t)((fill) & 0x0Fu) << 4) | ((uint8_t)(border) & 0x0Fu))
+#define COLOR_GET_BORDER(c)          ((uint8_t)((c) & 0x0Fu))
+#define COLOR_GET_FILL(c)            ((uint8_t)(((c) >> 4) & 0x0Fu))
+
+/* ============================================================
  * Shared Packet & Command Structures
  * ============================================================ */
 
@@ -59,6 +81,102 @@ typedef struct
     uint8_t len;
     uint8_t data[LINK_MAX_PAYLOAD];
 } GuCommand;
+
+/* ============================================================
+ * Graphic Command Structures & Parser Helpers
+ * ============================================================ */
+
+typedef struct
+{
+    uint16_t x;
+    uint16_t y;
+    uint8_t color; /* 4 bits used */
+} CmdSetPixel;
+
+typedef struct
+{
+    uint16_t x1;
+    uint16_t y1;
+    uint16_t x2;
+    uint16_t y2;
+    uint8_t color; /* 4 bits used */
+} CmdSetLine;
+
+typedef struct
+{
+    uint16_t x1;
+    uint16_t y1;
+    uint16_t x2;
+    uint16_t y2;
+    uint8_t color; /* 4 bits border, 4 bits fill */
+} CmdSetRect;
+
+typedef struct
+{
+    uint16_t x;
+    uint16_t y;
+    uint16_t radius;
+    uint8_t color; /* 4 bits border, 4 bits fill */
+} CmdSetCircle;
+
+typedef struct
+{
+    uint16_t x;
+    uint16_t y;
+    uint8_t color; /* 4 bits used */
+    const char *text; /* null-terminated string */
+} CmdSetString;
+
+static inline bool GU_ParseSetPixel(const uint8_t *data, uint8_t len, CmdSetPixel *cmd)
+{
+    if (!data || len < 5 || !cmd) return false;
+    cmd->x = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+    cmd->y = (uint16_t)data[2] | ((uint16_t)data[3] << 8);
+    cmd->color = data[4] & 0x0Fu;
+    return true;
+}
+
+static inline bool GU_ParseSetLine(const uint8_t *data, uint8_t len, CmdSetLine *cmd)
+{
+    if (!data || len < 9 || !cmd) return false;
+    cmd->x1 = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+    cmd->y1 = (uint16_t)data[2] | ((uint16_t)data[3] << 8);
+    cmd->x2 = (uint16_t)data[4] | ((uint16_t)data[5] << 8);
+    cmd->y2 = (uint16_t)data[6] | ((uint16_t)data[7] << 8);
+    cmd->color = data[8] & 0x0Fu;
+    return true;
+}
+
+static inline bool GU_ParseSetRect(const uint8_t *data, uint8_t len, CmdSetRect *cmd)
+{
+    if (!data || len < 9 || !cmd) return false;
+    cmd->x1 = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+    cmd->y1 = (uint16_t)data[2] | ((uint16_t)data[3] << 8);
+    cmd->x2 = (uint16_t)data[4] | ((uint16_t)data[5] << 8);
+    cmd->y2 = (uint16_t)data[6] | ((uint16_t)data[7] << 8);
+    cmd->color = data[8];
+    return true;
+}
+
+static inline bool GU_ParseSetCircle(const uint8_t *data, uint8_t len, CmdSetCircle *cmd)
+{
+    if (!data || len < 7 || !cmd) return false;
+    cmd->x = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+    cmd->y = (uint16_t)data[2] | ((uint16_t)data[3] << 8);
+    cmd->radius = (uint16_t)data[4] | ((uint16_t)data[5] << 8);
+    cmd->color = data[6];
+    return true;
+}
+
+static inline bool GU_ParseSetString(const uint8_t *data, uint8_t len, CmdSetString *cmd)
+{
+    if (!data || len < 6 || !cmd) return false;
+    cmd->x = (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+    cmd->y = (uint16_t)data[2] | ((uint16_t)data[3] << 8);
+    cmd->color = data[4] & 0x0Fu;
+    cmd->text = (const char *)&data[5];
+    return true;
+}
 
 /* ============================================================
  * Shared CRC-16/XMODEM Calculation

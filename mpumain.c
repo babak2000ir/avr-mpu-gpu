@@ -25,9 +25,12 @@ int main(void)
     /* Initialize MPU SPI master hardware and queues */
     MPU_Init();
 
-    /* Example graphics command transmission */
-    uint8_t demo_cmd[] = { 0x10, 0x20, 0x30, 0x40 };
-    MPU_Send(0x01, demo_cmd, sizeof(demo_cmd));
+    /* Queue graphics commands */
+    MPU_SendSetPixel(10, 20, 0x0F);
+    MPU_SendSetLine(0, 0, 100, 100, 0x05);
+    MPU_SendSetRectEx(10, 10, 50, 50, 0x01, 0x02);
+    MPU_SendSetCircleEx(30, 30, 15, 0x03, 0x04);
+    MPU_SendSetString(5, 5, 0x0E, "Hello GU!");
 
     for (;;)
     {

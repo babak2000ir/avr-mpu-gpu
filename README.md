@@ -76,6 +76,38 @@ MPU retains the head packet in its transmit queue until it receives an ACK for
 the matching sequence number. It retries up to five times after the initial
 transmission, with a 10 ms status timeout.
 
+## Graphics Commands
+
+The protocol defines high-level graphics commands sent from MPU to GU. Multi-byte integer fields (coordinates and radius) are serialized in little-endian order (`uint16_t`).
+
+| Command | Type ID | Payload Structure | Parameters & Format |
+| --- | --- | --- | --- |
+| `setpixel` | `0x01` (`CMD_SET_PIXEL`) | `[X0, X1, Y0, Y1, Color]` | `x: uint16`, `y: uint16`, `color: uint8` (4 bits used for 16 colors) |
+| `setline` | `0x02` (`CMD_SET_LINE`) | `[X1_0, X1_1, Y1_0, Y1_1, X2_0, X2_1, Y2_0, Y2_1, Color]` | `x1, y1, x2, y2: uint16`, `color: uint8` (4 bits used) |
+| `setrect` | `0x03` (`CMD_SET_RECT`) | `[X1_0, X1_1, Y1_0, Y1_1, X2_0, X2_1, Y2_0, Y2_1, Color]` | `x1, y1, x2, y2: uint16`, `color: uint8` (4 bits border in low nibble, 4 bits fill in high nibble) |
+| `setcircle` | `0x04` (`CMD_SET_CIRCLE`) | `[X0, X1, Y0, Y1, R0, R1, Color]` | `x: uint16`, `y: uint16`, `radius: uint16`, `color: uint8` (4 bits border in low nibble, 4 bits fill in high nibble) |
+| `setstring` | `0x05` (`CMD_SET_STRING`) | `[X0, X1, Y0, Y1, Color, Text..., 0x00]` | `x: uint16`, `y: uint16`, `color: uint8` (4 bits used), `text: string0` (null-terminated string) |
+
+### MPU Helper API
+
+The MPU provides helper functions to format payloads and push commands into the transmit queue:
+
+- `MPU_SendSetPixel(x, y, color)`
+- `MPU_SendSetLine(x1, y1, x2, y2, color)`
+- `MPU_SendSetRect(x1, y1, x2, y2, color)` / `MPU_SendSetRectEx(x1, y1, x2, y2, border, fill)`
+- `MPU_SendSetCircle(x, y, radius, color)` / `MPU_SendSetCircleEx(x, y, radius, border, fill)`
+- `MPU_SendSetString(x, y, color, text)`
+
+### GU Decoding API
+
+The GU provides parser functions in `protocol.h` to cleanly extract structured arguments:
+
+- `GU_ParseSetPixel(...)`
+- `GU_ParseSetLine(...)`
+- `GU_ParseSetRect(...)`
+- `GU_ParseSetCircle(...)`
+- `GU_ParseSetString(...)`
+
 ## Runtime Flow
 
 1. The application calls `MPU_Send()` to append a command to the MPU transmit
@@ -138,9 +170,8 @@ The checked-in VS Code task currently uses the AVR toolchain at
 
 ## Current Scope
 
-This repository provides the link layer and example application hooks. The
-actual VGA timing implementation and display effects for command types `0x01`
-and `0x02` are placeholders in `gumain.c`. A production deployment should
+This repository provides the link layer, graphic command definitions, helper functions, and example application hooks. The
+actual VGA timing implementation and display rendering for graphic command types (`0x01`–`0x05`) are placeholders in `gumain.c`. A production deployment should
 also verify electrical signal integrity, choose a safe USI clock rate for the
 final VGA ISR duration, and add target hardware tests for packet loss,
 duplicates, queue-full behavior, and reset/re-synchronization.

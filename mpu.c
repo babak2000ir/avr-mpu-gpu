@@ -705,3 +705,111 @@ void MPU_Init(void)
 
     sei();
 }
+
+
+/* ============================================================
+ * Graphics Command Helpers
+ * ============================================================ */
+
+bool MPU_SendSetPixel(uint16_t x, uint16_t y, uint8_t color)
+{
+    uint8_t payload[5];
+
+    payload[0] = (uint8_t)(x & 0xFFu);
+    payload[1] = (uint8_t)(x >> 8);
+    payload[2] = (uint8_t)(y & 0xFFu);
+    payload[3] = (uint8_t)(y >> 8);
+    payload[4] = color & 0x0Fu;
+
+    return MPU_Send(CMD_SET_PIXEL, payload, sizeof(payload));
+}
+
+
+bool MPU_SendSetLine(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint8_t color)
+{
+    uint8_t payload[9];
+
+    payload[0] = (uint8_t)(x1 & 0xFFu);
+    payload[1] = (uint8_t)(x1 >> 8);
+    payload[2] = (uint8_t)(y1 & 0xFFu);
+    payload[3] = (uint8_t)(y1 >> 8);
+    payload[4] = (uint8_t)(x2 & 0xFFu);
+    payload[5] = (uint8_t)(x2 >> 8);
+    payload[6] = (uint8_t)(y2 & 0xFFu);
+    payload[7] = (uint8_t)(y2 >> 8);
+    payload[8] = color & 0x0Fu;
+
+    return MPU_Send(CMD_SET_LINE, payload, sizeof(payload));
+}
+
+
+bool MPU_SendSetRect(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint8_t color)
+{
+    uint8_t payload[9];
+
+    payload[0] = (uint8_t)(x1 & 0xFFu);
+    payload[1] = (uint8_t)(x1 >> 8);
+    payload[2] = (uint8_t)(y1 & 0xFFu);
+    payload[3] = (uint8_t)(y1 >> 8);
+    payload[4] = (uint8_t)(x2 & 0xFFu);
+    payload[5] = (uint8_t)(x2 >> 8);
+    payload[6] = (uint8_t)(y2 & 0xFFu);
+    payload[7] = (uint8_t)(y2 >> 8);
+    payload[8] = color;
+
+    return MPU_Send(CMD_SET_RECT, payload, sizeof(payload));
+}
+
+
+bool MPU_SendSetRectEx(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint8_t border_color, uint8_t fill_color)
+{
+    uint8_t color = MAKE_COLOR_BF(border_color, fill_color);
+    return MPU_SendSetRect(x1, y1, x2, y2, color);
+}
+
+
+bool MPU_SendSetCircle(uint16_t x, uint16_t y, uint16_t radius, uint8_t color)
+{
+    uint8_t payload[7];
+
+    payload[0] = (uint8_t)(x & 0xFFu);
+    payload[1] = (uint8_t)(x >> 8);
+    payload[2] = (uint8_t)(y & 0xFFu);
+    payload[3] = (uint8_t)(y >> 8);
+    payload[4] = (uint8_t)(radius & 0xFFu);
+    payload[5] = (uint8_t)(radius >> 8);
+    payload[6] = color;
+
+    return MPU_Send(CMD_SET_CIRCLE, payload, sizeof(payload));
+}
+
+
+bool MPU_SendSetCircleEx(uint16_t x, uint16_t y, uint16_t radius, uint8_t border_color, uint8_t fill_color)
+{
+    uint8_t color = MAKE_COLOR_BF(border_color, fill_color);
+    return MPU_SendSetCircle(x, y, radius, color);
+}
+
+
+bool MPU_SendSetString(uint16_t x, uint16_t y, uint8_t color, const char *text)
+{
+    uint8_t payload[LINK_MAX_PAYLOAD];
+
+    payload[0] = (uint8_t)(x & 0xFFu);
+    payload[1] = (uint8_t)(x >> 8);
+    payload[2] = (uint8_t)(y & 0xFFu);
+    payload[3] = (uint8_t)(y >> 8);
+    payload[4] = color & 0x0Fu;
+
+    uint8_t idx = 5;
+    if (text != NULL)
+    {
+        while (*text != '\0' && idx < (LINK_MAX_PAYLOAD - 1))
+        {
+            payload[idx++] = (uint8_t)(*text++);
+        }
+    }
+    payload[idx++] = 0;
+
+    return MPU_Send(CMD_SET_STRING, payload, idx);
+}

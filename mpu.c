@@ -40,7 +40,8 @@
 #define CS_DDR           DDRA
 #define CS_BIT           PA7
 
-#define READY_PIN        PB0
+/* PB0 is the external clock input and must not be used as GPIO. */
+#define READY_PIN        PB2
 
 
 /* ============================================================

@@ -6,4 +6,7 @@ Wiring:
 | MISO / DO | PA5       | PA5        |
 | SCK       | PA4       | PA4        |
 | CS        | PA7       | PA7        |
-| READY     | PB0 input | PB0 output |
+| READY     | PB2 input | PB2 output |
+
+`PB0` on both controllers is reserved for the external clock input and must
+not be used or configured as a GPIO.

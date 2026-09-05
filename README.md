@@ -30,7 +30,7 @@ flowchart LR
     B -->|MISO / DO: PA5| A
     A -->|SCK: PA4| B
     A -->|CS: PA7| B
-    B -->|READY: PB0| A
+   B -->|READY: PB2| A
    B --> C["VGA / display application<br/>command processing"]
 ```
 
@@ -42,12 +42,13 @@ flowchart LR
 | MISO / DO | PA5 | PA5 | GU to MPU status/data |
 | SCK | PA4 | PA4 | MPU-generated USI clock |
 | CS | PA7 | PA7 | MPU selects a transaction |
-| READY | PB0 input | PB0 output | GU indicates status/data availability |
+| READY | PB2 input | PB2 output | GU indicates status/data availability |
 | GND | GND | GND | Common reference |
 
 The MPU `READY` input expects an external pull-down. The GU drives `READY`
 high when a status response is available or when it can accept another data
-transaction.
+transaction. `PB0` on both controllers is reserved for the external clock
+input and must not be used or configured as a GPIO.
 
 ## Protocol Overview
 

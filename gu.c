@@ -27,7 +27,8 @@
 
 #define CS_BIT           PA7
 
-#define READY_BIT        PB0
+/* PB0 is the external clock input and must not be used as GPIO. */
+#define READY_BIT        PB2
 
 
 /* ============================================================

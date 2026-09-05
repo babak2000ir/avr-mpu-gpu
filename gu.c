@@ -14,6 +14,7 @@
 #include <stdbool.h>
 
 #include "protocol.h"
+#include "gu.h"
 
 
 /* ============================================================
@@ -74,16 +75,6 @@ static volatile bool status_transaction_complete = false;
 /* ============================================================
  * GU command queue
  * ============================================================ */
-
-typedef struct
-{
-    uint8_t seq;
-    uint8_t type;
-    uint8_t len;
-    uint8_t data[LINK_MAX_PAYLOAD];
-
-} GuCommand;
-
 
 static GuCommand command_queue[GU_INSTRUCTION_QUEUE_SIZE];
 
@@ -180,7 +171,7 @@ static inline void usi_reset_counter(void)
  * The ATtiny84 has separate pin-change groups for PA and PB.
  */
 
-ISR(PCINT0_vect)
+void GU_CS_ISR(void)
 {
     uint8_t pins = PINA;
 
@@ -271,7 +262,7 @@ ISR(PCINT0_vect)
  * This ISR should be as short as possible.
  */
 
-ISR(USI_OVF_vect)
+void GU_USI_OVF_ISR(void)
 {
     uint8_t value;
 
@@ -887,7 +878,7 @@ static void process_status_transaction(void)
  *
  * NEVER call it from the VGA ISR.
  */
-void GU_Link_Service(void)
+void GU_Service(void)
 {
     /*
      * DATA transaction finished.
@@ -955,7 +946,7 @@ bool GU_GetCommand(uint8_t *type,
  * Initialization
  * ============================================================ */
 
-void GU_Link_Init(void)
+void GU_Init(void)
 {
     command_head = 0;
     command_tail = 0;

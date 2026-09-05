@@ -4,68 +4,63 @@
 #include <stdbool.h>
 
 #include "protocol.h"
-
-/* Functions from gu_link.c */
-void GU_Link_Init(void);
-void GU_Link_Service(void);
-bool GU_GetCommand(uint8_t *type,
-                   uint8_t *data,
-                   uint8_t *len);
-
+#include "gu.h"
 
 /*
- * Your VGA timer ISR.
- *
- * THIS IS THE HIGHEST PRIORITY JOB.
- *
- * Keep it exactly as timing-critical as necessary.
+ * Interrupt Service Routines
+ */
+
+/*
+ * VGA timer ISR - highest priority task
  */
 ISR(TIM1_COMPA_vect)
 {
     /*
-     * VGA bit banging here.
-     *
-     * Do not call:
-     *
-     *   GU_Link_Service()
-     *   GU_GetCommand()
-     *
-     * from here.
+     * VGA timing-critical code
      */
 }
 
+/*
+ * CS Pin Change ISR
+ */
+ISR(PCINT0_vect)
+{
+    GU_CS_ISR();
+}
+
+/*
+ * USI Overflow ISR
+ */
+ISR(USI_OVF_vect)
+{
+    GU_USI_OVF_ISR();
+}
 
 static void process_gu_command(uint8_t type,
                                uint8_t *data,
                                uint8_t len)
 {
+    (void)data;
+    (void)len;
+
     switch (type)
     {
         case 0x01:
             /*
-             * Example:
-             * draw something
+             * Example: draw command
              */
             break;
 
         case 0x02:
             /*
-             * Example:
-             * update a display register
+             * Example: update display register
              */
             break;
 
         default:
-            /*
-             * Unknown command.
-             *
-             * This should normally never happen because
-             * the MPU and GU share the protocol definition.
-             */
             break;
     }
 }
-
 
 int main(void)
 {
@@ -73,47 +68,18 @@ int main(void)
     uint8_t len;
     uint8_t data[LINK_MAX_PAYLOAD];
 
-    /*
-     * Initialize VGA hardware/timer FIRST if VGA timing
-     * is your primary concern.
-     */
-    /*
-     * VGA_Init();
-     */
-
-    GU_Link_Init();
-
-    /*
-     * Once VGA and other critical initialization is complete,
-     * GU_Link_Service() will eventually raise READY.
-     */
+    /* Initialize GU hardware and protocol handler */
+    GU_Init();
 
     for (;;)
     {
-        /*
-         * Communication protocol.
-         *
-         * Very short.
-         */
-        GU_Link_Service();
+        /* Process incoming SPI protocol transactions */
+        GU_Service();
 
-
-        /*
-         * Process commands outside interrupts.
-         */
+        /* Process commands outside interrupts */
         while (GU_GetCommand(&type, data, &len))
         {
             process_gu_command(type, data, len);
-
-            /*
-             * You can limit this to one command per main-loop
-             * iteration if command execution can become lengthy.
-             */
         }
-
-
-        /*
-         * Other GU background work.
-         */
     }
 }

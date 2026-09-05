@@ -3,7 +3,10 @@
 
 #include <stdint.h>
 
-//Protocol
+/* ============================================================
+ * Protocol Control & Status Constants
+ * ============================================================ */
+
 #define LINK_SOF                0xA5u
 #define LINK_STATUS_CMD         0x5Au
 
@@ -17,16 +20,12 @@
 #define LINK_MAX_PAYLOAD        24u
 
 /*
- * MPU transmit queue.
- *
- * Increase only if SRAM permits it.
- *
- * ATtiny84A has 512 bytes SRAM, so don't make this enormous.
+ * MPU transmit queue size.
  */
 #define LINK_TX_QUEUE_SIZE      8u
 
 /*
- * GU command queue.
+ * GU command queue size.
  */
 #define GU_INSTRUCTION_QUEUE_SIZE  4u
 
@@ -38,11 +37,12 @@
 /*
  * Time between sending DATA and expecting GU to make
  * a STATUS transaction available.
- *
- * Increase this if your VGA workload can keep GU busy
- * for longer.
  */
 #define LINK_ACK_TIMEOUT_MS     10u
+
+/* ============================================================
+ * Shared Packet & Command Structures
+ * ============================================================ */
 
 typedef struct
 {
@@ -52,18 +52,19 @@ typedef struct
     uint8_t data[LINK_MAX_PAYLOAD];
 } LinkPacket;
 
-/* ---------------- CRC ---------------- */
+typedef struct
+{
+    uint8_t seq;
+    uint8_t type;
+    uint8_t len;
+    uint8_t data[LINK_MAX_PAYLOAD];
+} GuCommand;
 
-/*
- * CRC-16/XMODEM
- *
- * Polynomial: 0x1021
- * Init:       0x0000
- *
- * The same implementation must be used on both devices.
- */
-static inline uint16_t crc16_update(uint16_t crc,
-                                         uint8_t data)
+/* ============================================================
+ * Shared CRC-16/XMODEM Calculation
+ * ============================================================ */
+
+static inline uint16_t crc16_update(uint16_t crc, uint8_t data)
 {
     crc ^= ((uint16_t)data << 8);
 
@@ -78,7 +79,7 @@ static inline uint16_t crc16_update(uint16_t crc,
     return crc;
 }
 
-static inline uint16_t calc_packet_crc(const LinkPacket *p)
+static inline uint16_t link_packet_crc(const LinkPacket *p)
 {
     uint16_t crc = 0;
 
@@ -90,6 +91,11 @@ static inline uint16_t calc_packet_crc(const LinkPacket *p)
         crc = crc16_update(crc, p->data[i]);
 
     return crc;
+}
+
+static inline uint16_t calc_packet_crc(const LinkPacket *p)
+{
+    return link_packet_crc(p);
 }
 
 #endif

@@ -1,12 +1,8 @@
 /*
- * mpu_link.c
- *
- * ATtiny84 / ATtiny84A
- *
+ * mpu.c
+ * ATtiny84
  * MPU = SPI master
  * GU  = SPI slave
- *
- * Reliable queued SPI protocol.
  */
 
 #include <avr/io.h>
@@ -15,9 +11,13 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifndef F_CPU
+#define F_CPU 20000000UL
+#endif
 #include <util/delay.h>
 
 #include "protocol.h"
+#include "mpu.h"
 
 
 /* ============================================================
@@ -48,11 +48,11 @@
  * ============================================================ */
 
 /*
- * 0 = fastest USI master operation.
+ * 1 = fastest USI master operation.
  *
- * At F_CPU = 8 MHz this is approximately:
+ * At F_CPU = 20 MHz this is approximately:
  *
- *      SCK = F_CPU / 4 = 2 MHz
+ *      SCK = F_CPU / 4 = 5 MHz
  *
  * IMPORTANT:
  *
@@ -72,12 +72,10 @@ volatile uint32_t mpu_millis = 0;
 
 
 /*
- * This Timer0 configuration is provided as a complete example.
+ * Timer0 CTC configuration for 1ms system tick at F_CPU = 20 MHz.
  *
- * 8 MHz / 64 = 125 kHz
- * OCR0A = 124
- *
- * => 1 ms
+ * 20 MHz / 256 = 78,125 Hz
+ * OCR0A = 77 (78 timer counts) => 0.9984 ms (~0.16% error)
  *
  * If your MPU already has a system tick, delete this timer
  * and use your existing millisecond counter instead.
@@ -85,16 +83,15 @@ volatile uint32_t mpu_millis = 0;
 static void mpu_timer_init(void)
 {
     TCCR0A = _BV(WGM01);
-    TCCR0B = _BV(CS01) | _BV(CS00);
+    TCCR0B = _BV(CS02);
 
-    OCR0A = 124;
+    OCR0A = 77;
 
     TIFR0 = _BV(OCF0A);
     TIMSK0 = _BV(OCIE0A);
 }
 
-
-ISR(TIM0_COMPA_vect)
+void MPU_TimerTick(void)
 {
     mpu_millis++;
 }
@@ -349,7 +346,7 @@ static void queue_pop(void)
  *
  * It only places the packet in the transmit queue.
  */
-bool GU_Send(uint8_t type,
+bool MPU_Send(uint8_t type,
              const uint8_t *data,
              uint8_t len)
 {
@@ -459,9 +456,9 @@ static uint8_t poll_status(uint8_t *sequence)
  * It never waits for an ACK.
  *
  * The only bounded blocking operation is the actual SPI
- * byte transfer, which at 2 MHz is only 4 us/byte.
+ * byte transfer, which at 5 MHz is only ~1.6 us/byte.
  */
-void GU_Service(void)
+void MPU_Service(void)
 {
     LinkPacket *p;
     uint32_t now;
@@ -668,19 +665,19 @@ void GU_Service(void)
  * Optional status helpers
  * ============================================================ */
 
-bool GU_IsBusy(void)
+bool MPU_IsBusy(void)
 {
     return link_state != MPU_LINK_IDLE;
 }
 
 
-uint8_t GU_QueuedPackets(void)
+uint8_t MPU_QueuedPackets(void)
 {
     return tx_count;
 }
 
 
-uint8_t GU_RetryCount(void)
+uint8_t MPU_RetryCount(void)
 {
     return retry_count;
 }
@@ -690,7 +687,7 @@ uint8_t GU_RetryCount(void)
  * MPU initialization
  * ============================================================ */
 
-void GU_Link_Init(void)
+void MPU_Init(void)
 {
     mpu_spi_init();
 

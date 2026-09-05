@@ -1,0 +1,26 @@
+# AVR build artifacts
+*.elf
+*.hex
+*.eep
+*.map
+*.lss
+*.sym
+*.o
+*.d
+*.a
+*.bin
+
+# Common build output directories
+/build/
+/out/
+/dist/
+
+# Local compiler and IDE state
+.cache/
+.vscode/.browse.VC.db*
+.vscode/ipch/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

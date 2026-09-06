@@ -13,7 +13,7 @@
 /*
  * VGA timer ISR - highest priority task
  */
-ISR(TIM1_COMPA_vect)
+ISR(TIMER1_COMPA_vect)
 {
     /*
      * VGA timing-critical code
@@ -29,11 +29,11 @@ ISR(PCINT0_vect)
 }
 
 /*
- * USI Overflow ISR
+ * SPI transfer complete ISR
  */
-ISR(USI_OVF_vect)
+ISR(SPI_STC_vect)
 {
-    GU_USI_OVF_ISR();
+    GU_SPI_STC_ISR();
 }
 
 static void process_gu_command(uint8_t type,

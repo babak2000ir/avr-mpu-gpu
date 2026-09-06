@@ -1,10 +1,10 @@
 # AVR MPU/GU Link
 
 This project is a two-AVR embedded communication prototype. An ATtiny84 (the
-MPU) sends framed graphics or display commands over a USI-based SPI-compatible
-link to a second ATtiny84 (the GU). The GU receives commands without doing
-protocol work in its VGA timing interrupt, queues accepted commands, and makes
-them available to the application loop.
+MPU) sends framed graphics or display commands over a USI-to-hardware-SPI link
+to an ATmega328P (the GU). The GU receives commands without doing protocol work
+in its VGA timing interrupt, queues accepted commands, and makes them available
+to the application loop.
 
 The link is designed for short, non-blocking transactions:
 
@@ -19,14 +19,15 @@ The link is designed for short, non-blocking transactions:
 
 ## Hardware Architecture
 
-Both controllers are ATtiny84/ATtiny84A devices running at 20 MHz. The MPU
-uses USI in software-clocked master mode. The GU uses USI in external-clock
-slave mode and handles chip-select and USI overflow events with interrupts.
+The MPU is an ATtiny84/ATtiny84A running at 20 MHz and uses USI in
+software-clocked master mode. The GU is an ATmega328P running at 20 MHz and
+uses its hardware SPI peripheral in slave mode. The GU handles chip-select and
+SPI transfer-complete events with interrupts.
 
 ```mermaid
 flowchart LR
    D["MPU application<br/>queues commands with MPU_Send()"] --> A["MPU ATtiny84<br/>SPI master<br/>mpumain.c + mpu.c"]
-   A -->|MOSI / DI: PA6| B["GU ATtiny84<br/>SPI slave<br/>gumain.c + gu.c"]
+   A -->|MOSI: PA6 to PB3| B["GU ATmega328P<br/>SPI slave<br/>gumain.c + gu.c"]
     B -->|MISO / DO: PA5| A
     A -->|SCK: PA4| B
     A -->|CS: PA7| B
@@ -38,17 +39,19 @@ flowchart LR
 
 | Signal | MPU pin | GU pin | Direction / purpose |
 | --- | --- | --- | --- |
-| MOSI / DI | PA6 | PA6 | MPU to GU data |
-| MISO / DO | PA5 | PA5 | GU to MPU status/data |
-| SCK | PA4 | PA4 | MPU-generated USI clock |
-| CS | PA7 | PA7 | MPU selects a transaction |
-| READY | PB2 input | PB2 output | GU indicates status/data availability |
+| MOSI | PA6 / DI | PB3 / MOSI (D11, DIP pin 17) | MPU to GU data |
+| MISO | PA5 / DO | PB4 / MISO (D12, DIP pin 18) | GU to MPU status/data |
+| SCK | PA4 / USCK | PB5 / SCK (D13, DIP pin 19) | MPU-generated USI clock |
+| CS | PA7 | PB2 / SS (D10, DIP pin 16) | MPU selects a transaction |
+| READY | PB2 input | PD2 (D2, DIP pin 4) output | GU indicates status/data availability |
 | GND | GND | GND | Common reference |
 
 The MPU `READY` input expects an external pull-down. The GU drives `READY`
 high when a status response is available or when it can accept another data
-transaction. `PB0` on both controllers is reserved for the external clock
-input and must not be used or configured as a GPIO.
+transaction. `PB0` on the MPU is reserved for its external clock input and
+must not be used or configured as a GPIO. On the ATmega328P, `PB6` and `PB7`
+are the oscillator pins; supply the required 20 MHz clock source there and do
+not use them as GPIO.
 
 ## Protocol Overview
 
@@ -115,7 +118,7 @@ The GU provides parser functions in `protocol.h` to cleanly extract structured a
    queue.
 2. `MPU_Service()` checks `READY`, sends the oldest packet, and enters the
    status-wait state without blocking the main loop.
-3. The GU receives bytes in `GU_CS_ISR()` and `GU_USI_OVF_ISR()`. Those
+3. The GU receives bytes in `GU_CS_ISR()` and `GU_SPI_STC_ISR()`. Those
    interrupt handlers only capture transaction state and bytes.
 4. `GU_Service()` validates the packet, checks CRC and sequence, and queues an
    accepted command or prepares a NACK response.
@@ -138,7 +141,7 @@ timing-critical display work from link processing.
 | `mpu.c` | MPU USI master, GPIO and timer setup, transmit queue, packet framing, status polling, retry state machine, and initialization. |
 | `mpumain.c` | MPU entry point, 1 ms timer ISR, and example command submission. |
 | `gu.h` | Public GU slave-link API, command retrieval API, and ISR entry points. |
-| `gu.c` | GU USI slave, chip-select and overflow handling, packet validation, status generation, sequence tracking, command queue, and initialization. |
+| `gu.c` | GU ATmega328P SPI slave, chip-select and transfer-complete handling, packet validation, status generation, sequence tracking, command queue, and initialization. |
 | `gumain.c` | GU entry point, VGA timer ISR placeholder, link ISRs, and example command dispatcher. |
 | `.vscode/tasks.json` | VS Code tasks for building the MPU image, GU image, or both. |
 | `.gitignore` | Excludes AVR compiler artifacts and local build/IDE output. |
@@ -152,7 +155,7 @@ timing-critical display work from link processing.
 Run the default **Build all** task. It builds both targets in sequence:
 
 - **Build mpu** compiles `mpumain.c` and `mpu.c` for `attiny84`.
-- **Build gu** compiles `gumain.c` and `gu.c` for `attiny84`.
+- **Build gu** compiles `gumain.c` and `gu.c` for `atmega328p`.
 
 Both tasks define `F_CPU=20000000UL`, optimize with `-Os`, and write
 `mpubin.elf` or `gubin.elf` in the project directory.
@@ -163,7 +166,7 @@ With `avr-gcc` available on `PATH`, the equivalent commands are:
 
 ```sh
 avr-gcc mpumain.c mpu.c -o mpubin.elf -mmcu=attiny84 -DF_CPU=20000000UL -Os
-avr-gcc gumain.c gu.c -o gubin.elf -mmcu=attiny84 -DF_CPU=20000000UL -Os
+avr-gcc gumain.c gu.c -o gubin.elf -mmcu=atmega328p -DF_CPU=20000000UL -Os
 ```
 
 The checked-in VS Code task currently uses the AVR toolchain at
@@ -173,6 +176,6 @@ The checked-in VS Code task currently uses the AVR toolchain at
 
 This repository provides the link layer, graphic command definitions, helper functions, and example application hooks. The
 actual VGA timing implementation and display rendering for graphic command types (`0x01`–`0x05`) are placeholders in `gumain.c`. A production deployment should
-also verify electrical signal integrity, choose a safe USI clock rate for the
+also verify electrical signal integrity, choose a safe SPI clock rate for the
 final VGA ISR duration, and add target hardware tests for packet loss,
 duplicates, queue-full behavior, and reset/re-synchronization.

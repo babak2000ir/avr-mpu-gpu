@@ -1,12 +1,13 @@
 Wiring:
 
-| Signal    | MPU       | GU         |
+| Signal    | MPU ATtiny84 | GU ATmega328P |
 | --------- | --------- | ---------- |
-| MOSI / DI | PA6       | PA6        |
-| MISO / DO | PA5       | PA5        |
-| SCK       | PA4       | PA4        |
-| CS        | PA7       | PA7        |
-| READY     | PB2 input | PB2 output |
+| MOSI      | PA6 / DI  | PB3 / MOSI (D11, DIP pin 17) |
+| MISO      | PA5 / DO  | PB4 / MISO (D12, DIP pin 18) |
+| SCK       | PA4 / USCK | PB5 / SCK (D13, DIP pin 19) |
+| CS        | PA7       | PB2 / SS (D10, DIP pin 16) |
+| READY     | PB2 input | PD2 (D2, DIP pin 4) output |
 
-`PB0` on both controllers is reserved for the external clock input and must
-not be used or configured as a GPIO.
+`PB0` on the MPU is reserved for its external clock input and must not be used
+or configured as a GPIO. The ATmega328P uses `PB6` and `PB7` for its clock
+source at 20 MHz; do not use those pins as GPIO.

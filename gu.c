@@ -1,7 +1,7 @@
 /*
  * gu_link.c
  *
- * ATtiny84 / ATtiny84A
+ * ATmega328P
  *
  * GU = SPI slave
  *
@@ -21,14 +21,12 @@
  * Pins
  * ============================================================ */
 
-#define SPI_DI_BIT       PA6
-#define SPI_DO_BIT       PA5
-#define SPI_SCK_BIT      PA4
+#define SPI_MOSI_BIT     PB3
+#define SPI_MISO_BIT     PB4
+#define SPI_SCK_BIT      PB5
+#define SPI_SS_BIT       PB2
 
-#define CS_BIT           PA7
-
-/* PB0 is the external clock input and must not be used as GPIO. */
-#define READY_BIT        PB2
+#define READY_BIT        PD2
 
 
 /* ============================================================
@@ -107,52 +105,23 @@ static uint8_t last_accepted_sequence = 0;
 
 static inline void gu_ready_high(void)
 {
-    PORTB |= _BV(READY_BIT);
+    PORTD |= _BV(READY_BIT);
 }
 
 
 static inline void gu_ready_low(void)
 {
-    PORTB &= ~_BV(READY_BIT);
+    PORTD &= ~_BV(READY_BIT);
 }
 
 /* ============================================================
- * USI helpers
+ * SPI helpers
  * ============================================================ */
 
-static inline void usi_enable(void)
+static inline void spi_enable(void)
 {
-    /*
-     * Three-wire mode.
-     *
-     * USICS1 = 1, USICS0 = 0:
-     *
-     * external positive-edge clock.
-     *
-     * USIOIE:
-     * overflow interrupt.
-     */
-    USICR =
-        _BV(USIOIE) |
-        _BV(USIWM0) |
-        _BV(USICS1);
-}
-
-
-static inline void usi_disable(void)
-{
-    USICR = 0;
-}
-
-
-static inline void usi_reset_counter(void)
-{
-    /*
-     * Writing one to USIOIF clears it.
-     *
-     * Counter becomes zero.
-     */
-    USISR = _BV(USIOIF);
+    /* SPI slave, mode 0, MSB first. */
+    SPCR = _BV(SPE) | _BV(SPIE);
 }
 
 
@@ -161,22 +130,20 @@ static inline void usi_reset_counter(void)
  * ============================================================ */
 
 /*
- * PA7 belongs to PCINT7, therefore:
+ * PB2 belongs to PCINT2, therefore:
  *
- *     PCMSK0 bit 7
+ *     PCMSK0 bit 2
  *     PCIE0
  *     PCINT0_vect
  *
  * are used.
- *
- * The ATtiny84 has separate pin-change groups for PA and PB.
  */
 
 void GU_CS_ISR(void)
 {
-    uint8_t pins = PINA;
+     uint8_t pins = PINB;
 
-    if (!(pins & _BV(CS_BIT)))
+     if (!(pins & _BV(SPI_SS_BIT)))
     {
         /*
          * CS falling.
@@ -205,16 +172,10 @@ void GU_CS_ISR(void)
         gu_ready_low();
 
         /*
-         * Reset USI counter.
-         */
-        usi_reset_counter();
-
-        /*
          * First byte received determines transaction type.
          */
-        USIDR = 0x00;
+        SPDR = 0x00;
 
-        usi_enable();
     }
     else
     {
@@ -224,14 +185,12 @@ void GU_CS_ISR(void)
          * End of transaction.
          */
 
-        usi_disable();
-
         rx_transaction_active = false;
 
         /*
          * MISO can be driven low while idle.
          */
-        PORTA &= ~_BV(SPI_DO_BIT);
+        PORTB &= ~_BV(SPI_MISO_BIT);
 
         /*
          * Tell main loop that something needs processing.
@@ -245,7 +204,7 @@ void GU_CS_ISR(void)
 
 
 /* ============================================================
- * USI overflow ISR
+ * SPI transfer complete ISR
  * ============================================================ */
 
 /*
@@ -263,21 +222,16 @@ void GU_CS_ISR(void)
  * This ISR should be as short as possible.
  */
 
-void GU_USI_OVF_ISR(void)
+void GU_SPI_STC_ISR(void)
 {
     uint8_t value;
 
     /*
      * Read received byte immediately.
      *
-     * USI has no receive FIFO.
+    * The SPI data register has no receive FIFO.
      */
-    value = USIDR;
-
-    /*
-     * Prepare counter for next byte.
-     */
-    usi_reset_counter();
+    value = SPDR;
 
 
     /* --------------------------------------------------------
@@ -296,7 +250,7 @@ void GU_USI_OVF_ISR(void)
             /*
              * Next received byte gets status.
              */
-            USIDR = status_to_send;
+            SPDR = status_to_send;
         }
         else if (value == LINK_SOF)
         {
@@ -308,7 +262,7 @@ void GU_USI_OVF_ISR(void)
             /*
              * Next byte will be SEQ.
              */
-            USIDR = 0x00;
+            SPDR = 0x00;
         }
         else
         {
@@ -317,7 +271,7 @@ void GU_USI_OVF_ISR(void)
              */
             rx_protocol_error = true;
 
-            USIDR = 0xFF;
+            SPDR = 0xFF;
         }
 
         rx_index = 1;
@@ -341,14 +295,14 @@ void GU_USI_OVF_ISR(void)
          */
         if (rx_index == 1)
         {
-            USIDR = status_sequence;
+            SPDR = status_sequence;
         }
         else
         {
             /*
              * Extra bytes get zero.
              */
-            USIDR = 0x00;
+            SPDR = 0x00;
         }
 
         rx_index++;
@@ -368,7 +322,7 @@ void GU_USI_OVF_ISR(void)
          */
         rx_buffer[0] = value;
 
-        USIDR = 0x00;
+        SPDR = 0x00;
 
         rx_index++;
 
@@ -396,7 +350,7 @@ void GU_USI_OVF_ISR(void)
             rx_expected_length = value;
         }
 
-        USIDR = 0x00;
+        SPDR = 0x00;
 
         rx_index++;
 
@@ -411,7 +365,7 @@ void GU_USI_OVF_ISR(void)
          */
         rx_buffer[2] = value;
 
-        USIDR = 0x00;
+        SPDR = 0x00;
 
         rx_index++;
 
@@ -435,7 +389,7 @@ void GU_USI_OVF_ISR(void)
         {
             rx_buffer[3 + payload_index] = value;
 
-            USIDR = 0x00;
+            SPDR = 0x00;
 
             rx_index++;
 
@@ -460,7 +414,7 @@ void GU_USI_OVF_ISR(void)
              */
             rx_buffer[3 + rx_expected_length] = value;
 
-            USIDR = 0x00;
+            SPDR = 0x00;
 
             rx_index++;
 
@@ -484,7 +438,7 @@ void GU_USI_OVF_ISR(void)
             /*
              * We don't need another useful byte.
              */
-            USIDR = 0x00;
+            SPDR = 0x00;
 
             rx_index++;
 
@@ -496,7 +450,7 @@ void GU_USI_OVF_ISR(void)
     /*
      * Anything beyond the expected packet is ignored.
      */
-    USIDR = 0x00;
+    SPDR = 0x00;
 
     rx_index++;
 }
@@ -509,59 +463,53 @@ void GU_USI_OVF_ISR(void)
 static void gu_spi_init(void)
 {
     /*
-     * DI/MOSI input.
+    * MOSI and SCK inputs.
      */
-    DDRA &= ~_BV(SPI_DI_BIT);
-
-    /*
-     * SCK input.
-     */
-    DDRA &= ~_BV(SPI_SCK_BIT);
+    DDRB &= ~(_BV(SPI_MOSI_BIT) | _BV(SPI_SCK_BIT));
 
     /*
      * DO/MISO output.
      */
-    DDRA |= _BV(SPI_DO_BIT);
+    DDRB |= _BV(SPI_MISO_BIT);
 
-    PORTA &= ~_BV(SPI_DO_BIT);
+    PORTB &= ~_BV(SPI_MISO_BIT);
 
     /*
      * CS input with pull-up.
      *
      * MPU drives it actively.
      */
-    DDRA &= ~_BV(CS_BIT);
-    PORTA |= _BV(CS_BIT);
+    DDRB &= ~_BV(SPI_SS_BIT);
+    PORTB |= _BV(SPI_SS_BIT);
 
     /*
      * READY output.
      */
-    DDRB |= _BV(READY_BIT);
+    DDRD |= _BV(READY_BIT);
 
     gu_ready_low();
 
 
     /*
-     * Enable PA7 pin-change interrupt.
+    * Enable PB2 pin-change interrupt.
      */
-    PCMSK0 |= _BV(PCINT7);
+    PCMSK0 |= _BV(PCINT2);
 
     /*
      * Clear pending pin-change interrupt.
      */
-    GIFR = _BV(PCIF0);
+    PCIFR = _BV(PCIF0);
 
     /*
-     * Enable PA pin-change interrupts.
+    * Enable port B pin-change interrupts.
      */
-    GIMSK |= _BV(PCIE0);
+    PCICR |= _BV(PCIE0);
 
     /*
-     * USI starts disabled.
+     * Keep SPI enabled so the slave is ready before the first clock edge
+     * following SS assertion. Hardware gates MISO while SS is high.
      */
-    usi_disable();
-
-    usi_reset_counter();
+    spi_enable();
 }
 
 
@@ -975,8 +923,8 @@ void GU_Init(void)
     /*
      * Enable interrupts.
      *
-     * Your VGA timer ISR will have higher interrupt priority
-     * than USI_OVF_vect on ATtiny84.
+    * TIMER1_COMPA_vect has higher interrupt priority than
+    * SPI_STC_vect on the ATmega328P.
      */
     sei();
 

@@ -16,7 +16,7 @@
             "cppStandard": "gnu++14",
             "intelliSenseMode": "windows-gcc-x64",
             "compilerArgs": [
-                "-mmcu=attiny84",
+                 "-mmcu=atmega328p",
                 "-Os"
             ]
         }

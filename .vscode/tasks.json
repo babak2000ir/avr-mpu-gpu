@@ -33,7 +33,7 @@
 				"${workspaceFolder}/gu.c",
 				"-o",
 				"${workspaceFolder}/gubin.elf",
-				"-mmcu=attiny84",
+				"-mmcu=atmega328p",
 				"-DF_CPU=20000000UL",
 				"-Os",
 			],

@@ -8,17 +8,13 @@
             "defines": [
                 "_DEBUG",
                 "UNICODE",
-                "_UNICODE",
-                "F_CPU=20000000UL"
+                "_UNICODE"
             ],
             "compilerPath": "C:/AVR/avr8-gnu-toolchain-win32_x86_64/bin/avr-gcc.exe",
             "cStandard": "gnu11",
             "cppStandard": "gnu++14",
             "intelliSenseMode": "windows-gcc-x64",
-            "compilerArgs": [
-                 "-mmcu=atmega328p",
-                "-Os"
-            ]
+            "compileCommands": "${workspaceFolder}/compile_commands.json"
         }
     ],
     "version": 4

@@ -1,0 +1,22 @@
+[
+    {
+        "directory": "c:/sp/avr-mpu-gpu",
+        "file": "c:/sp/avr-mpu-gpu/mpu.c",
+        "command": "avr-gcc -mmcu=attiny84 -DF_CPU=20000000UL -O0 -c mpu.c -gdwarf-2"
+    },
+    {
+        "directory": "c:/sp/avr-mpu-gpu",
+        "file": "c:/sp/avr-mpu-gpu/mpumain.c",
+        "command": "avr-gcc -mmcu=attiny84 -DF_CPU=20000000UL -O0 -c mpumain.c -gdwarf-2"
+    },
+    {
+        "directory": "c:/sp/avr-mpu-gpu",
+        "file": "c:/sp/avr-mpu-gpu/gu.c",
+        "command": "avr-gcc -mmcu=atmega328p -DF_CPU=20000000UL -O0 -c gu.c -gdwarf-2"
+    },
+    {
+        "directory": "c:/sp/avr-mpu-gpu",
+        "file": "c:/sp/avr-mpu-gpu/gumain.c",
+        "command": "avr-gcc -mmcu=atmega328p -DF_CPU=20000000UL -O0 -c gumain.c -gdwarf-2"
+    }
+]

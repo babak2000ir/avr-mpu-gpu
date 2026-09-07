@@ -26,6 +26,23 @@
 		},
 		{
 			"type": "shell",
+			"label": "MPU Hex",
+			"command": "C:/AVR/avr8-gnu-toolchain-win32_x86_64/bin/avr-objcopy.exe",
+			"args": [
+				"${workspaceFolder}/mpubin.elf",
+				"-O",
+				"ihex",
+				"${workspaceFolder}/mpu.hex"
+			],
+			"group": "build",
+			"hide": true,
+			"presentation": {
+				"panel": "shared",
+				"group": "buildAll"
+			}
+		},
+		{
+			"type": "shell",
 			"label": "Build gu",
 			"command": "C:/AVR/avr8-gnu-toolchain-win32_x86_64/bin/avr-gcc.exe",
 			"args": [
@@ -48,10 +65,29 @@
 			]
 		},
 		{
+			"type": "shell",
+			"label": "GU Hex",
+			"command": "C:/AVR/avr8-gnu-toolchain-win32_x86_64/bin/avr-objcopy.exe",
+			"args": [
+				"${workspaceFolder}/gubin.elf",
+				"-O",
+				"ihex",
+				"${workspaceFolder}/gu.hex"
+			],
+			"group": "build",
+			"hide": true,
+			"presentation": {
+				"panel": "shared",
+				"group": "buildAll"
+			}
+		},
+		{
 			"label": "Build all",
 			"dependsOn": [
 				"Build mpu",
-				"Build gu"
+				"Build gu",
+				"MPU Hex",
+				"GU Hex"
 			],
 			"dependsOrder": "sequence",
 			"group": {

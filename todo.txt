@@ -1,0 +1,8 @@
+documentation mistakes
+documentations better
+documentation Schematid diagram
+inline funtion to cut cpu cycles
+cutting CPU cycles in any way possible in code (even inline assembly for VGA stuff)
+fix the counter/ready/state machine issue and explore possibility of queueing on GU side
+RAM design
+VGA design

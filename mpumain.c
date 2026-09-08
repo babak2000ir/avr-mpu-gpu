@@ -1,6 +1,6 @@
 /*
  * mpumain.c
- * ATtiny84 / ATtiny84A
+ * ATmega328P
  * MPU = SPI master
  */
 
@@ -15,7 +15,7 @@
 /*
  * Timer0 Interrupt Service Routine (1ms tick)
  */
-ISR(TIM0_COMPA_vect)
+ISR(TIMER0_COMPA_vect)
 {
     MPU_TimerTick();
 }

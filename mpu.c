@@ -1,6 +1,6 @@
 /*
  * mpu.c
- * ATtiny84
+ * ATmega328P
  * MPU = SPI master
  * GU  = SPI slave
  */
@@ -25,23 +25,30 @@
  * ============================================================ */
 
 /*
- * ATtiny84 USI pins:
+ * ATmega328P hardware SPI pins (PORTB):
  *
- * PA6 = DI  = MOSI
- * PA5 = DO  = MISO
- * PA4 = USCK
+ * PB3 = MOSI
+ * PB4 = MISO
+ * PB5 = SCK
+ * PB2 = SS   (manual chip-select output to the GU)
  */
 
-#define SPI_MOSI_BIT     PA6
-#define SPI_MISO_BIT     PA5
-#define SPI_SCK_BIT      PA4
+#define SPI_MOSI_BIT     PB3
+#define SPI_MISO_BIT     PB4
+#define SPI_SCK_BIT      PB5
 
-#define CS_PORT          PORTA
-#define CS_DDR           DDRA
-#define CS_BIT           PA7
+#define CS_PORT          PORTB
+#define CS_DDR           DDRB
+#define CS_BIT           PB2
 
-/* PB0 is the external clock input and must not be used as GPIO. */
-#define READY_PIN        PB2
+/*
+ * PB6 (XTAL1) is the external clock input and must not be used as GPIO.
+ * The board is clocked externally, so PB7 (XTAL2) is free for GPIO use.
+ */
+#define READY_PORT       PORTD
+#define READY_DDR        DDRD
+#define READY_PIN_REG    PIND
+#define READY_PIN        PD2
 
 
 /* ============================================================
@@ -49,20 +56,18 @@
  * ============================================================ */
 
 /*
- * 1 = fastest USI master operation.
+ * Hardware SPI clock divider (relative to F_CPU).
  *
- * At F_CPU = 20 MHz this is approximately:
+ * At F_CPU = 20 MHz, SPI2X=0 and SPR[1:0]=00 gives:
  *
  *      SCK = F_CPU / 4 = 5 MHz
  *
  * IMPORTANT:
  *
- * The GU must be able to service USI overflow before the next
- * byte arrives. If your VGA ISR is long, lower this.
- *
- * See the explanation below for choosing this value.
+ * The GU must be able to service SPI STC interrupts before the
+ * next byte arrives. If your VGA ISR is long, choose a slower
+ * divider (SPR bits) below.
  */
-#define LINK_FAST_SPI    1
 
 
 /* ============================================================
@@ -118,7 +123,7 @@ static inline uint32_t mpu_now_ms(void)
 
 static inline bool gu_ready(void)
 {
-    return (PINB & _BV(READY_PIN)) != 0;
+    return (READY_PIN_REG & _BV(READY_PIN)) != 0;
 }
 
 
@@ -135,96 +140,21 @@ static inline void cs_high(void)
 
 
 /* ============================================================
- * USI SPI master
+ * Hardware SPI master
  * ============================================================ */
 
 /*
- * The ATtiny84 has USI rather than the conventional SPCR/SPDR
- * SPI registers found on larger AVRs.
- *
- * Microchip documents the USI three-wire mode as SPI-compatible.
+ * Blocking single-byte transfer using the ATmega328P hardware
+ * SPI peripheral (SPCR/SPDR/SPSR).
  */
-
-/*
- * Fast transfer.
- *
- * The USI counter counts BOTH clock edges, so 16 edges
- * correspond to one byte.
- */
-static uint8_t usi_master_transfer(uint8_t value)
+static uint8_t spi_master_transfer(uint8_t value)
 {
-    uint8_t a;
-    uint8_t b;
+    SPDR = value;
 
-    /*
-     * Load transmit byte.
-     */
-    USIDR = value;
+    while (!(SPSR & _BV(SPIF)))
+        ;
 
-    /*
-     * Clear overflow flag and reset the 4-bit counter.
-     */
-    USISR = _BV(USIOIF);
-
-#if LINK_FAST_SPI
-
-    /*
-     * Software clock generation.
-     *
-     * This is the same basic mechanism documented by Microchip
-     * for maximum-speed USI master operation.
-     */
-    a = _BV(USIWM0) |
-        _BV(USITC);
-
-    b = _BV(USIWM0) |
-        _BV(USITC) |
-        _BV(USICLK);
-
-    USICR = a;
-    USICR = b;
-
-    USICR = a;
-    USICR = b;
-
-    USICR = a;
-    USICR = b;
-
-    USICR = a;
-    USICR = b;
-
-    USICR = a;
-    USICR = b;
-
-    USICR = a;
-    USICR = b;
-
-    USICR = a;
-    USICR = b;
-
-    USICR = a;
-    USICR = b;
-
-#else
-
-    /*
-     * Slower/polling version.
-     *
-     * Useful during initial testing if the GU VGA interrupt
-     * is long.
-     */
-    a = _BV(USIWM0) |
-        _BV(USICS0) |
-        _BV(USITC);
-
-    while (!(USISR & _BV(USIOIF)))
-    {
-        USICR = a;
-    }
-
-#endif
-
-    return USIDR;
+    return SPDR;
 }
 
 
@@ -235,17 +165,18 @@ static uint8_t usi_master_transfer(uint8_t value)
 static void mpu_spi_init(void)
 {
     /*
-     * MOSI and SCK outputs.
+     * MOSI, SCK and CS (manual chip-select) outputs.
      * MISO input.
+     *
+     * The hardware SS pin (PB2 / CS_BIT) must be driven as an
+     * output, idle high, or the SPI peripheral can fall back to
+     * slave mode as soon as it goes low as an input.
      */
-    DDRA |= _BV(SPI_MOSI_BIT);
-    DDRA |= _BV(SPI_SCK_BIT);
+    DDRB |= _BV(SPI_MOSI_BIT);
+    DDRB |= _BV(SPI_SCK_BIT);
 
-    DDRA &= ~_BV(SPI_MISO_BIT);
+    DDRB &= ~_BV(SPI_MISO_BIT);
 
-    /*
-     * CS output, idle high.
-     */
     CS_DDR |= _BV(CS_BIT);
     CS_PORT |= _BV(CS_BIT);
 
@@ -256,15 +187,14 @@ static void mpu_spi_init(void)
      *
      * Use an external pull-down on the GU READY line.
      */
-    DDRB &= ~_BV(READY_PIN);
-    PORTB &= ~_BV(READY_PIN);
+    READY_DDR &= ~_BV(READY_PIN);
+    READY_PORT &= ~_BV(READY_PIN);
 
     /*
-     * USI initially disabled.
+     * Master mode, SPI enabled, clock = F_CPU / 4.
      */
-    USICR = _BV(USIWM0);
-
-    USISR = _BV(USIOIF);
+    SPCR = _BV(SPE) | _BV(MSTR);
+    SPSR = 0;
 }
 
 
@@ -389,23 +319,23 @@ static void send_data_packet(const LinkPacket *p)
      * This is intentionally tiny.
      *
      * It also gives the GU's CS pin-change ISR time to reset
-     * the USI transaction state.
+     * the SPI transaction state.
      */
     _delay_us(2);
 
-    usi_master_transfer(LINK_SOF);
+    spi_master_transfer(LINK_SOF);
 
-    usi_master_transfer(p->seq);
-    usi_master_transfer(p->len);
-    usi_master_transfer(p->type);
+    spi_master_transfer(p->seq);
+    spi_master_transfer(p->len);
+    spi_master_transfer(p->type);
 
     for (uint8_t i = 0; i < p->len; i++)
-        usi_master_transfer(p->data[i]);
+        spi_master_transfer(p->data[i]);
 
     crc = link_packet_crc(p);
 
-    usi_master_transfer((uint8_t)(crc & 0xFF));
-    usi_master_transfer((uint8_t)(crc >> 8));
+    spi_master_transfer((uint8_t)(crc & 0xFF));
+    spi_master_transfer((uint8_t)(crc >> 8));
 
     cs_high();
 }
@@ -427,7 +357,7 @@ static uint8_t poll_status(uint8_t *sequence)
     /*
      * First byte tells GU this is a status transaction.
      */
-    usi_master_transfer(LINK_STATUS_CMD);
+    spi_master_transfer(LINK_STATUS_CMD);
 
     /*
      * GU responds with:
@@ -435,8 +365,8 @@ static uint8_t poll_status(uint8_t *sequence)
      * byte 1 = status
      * byte 2 = sequence
      */
-    status = usi_master_transfer(0x00);
-    seq    = usi_master_transfer(0x00);
+    status = spi_master_transfer(0x00);
+    seq    = spi_master_transfer(0x00);
 
     cs_high();
 

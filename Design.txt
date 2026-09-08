@@ -1,13 +1,14 @@
 Wiring:
 
-| Signal    | MPU ATtiny84 | GU ATmega328P |
+| Signal    | MPU ATmega328P | GU ATmega328P |
 | --------- | --------- | ---------- |
-| MOSI      | PA6 / DI  | PB3 / MOSI (D11, DIP pin 17) |
-| MISO      | PA5 / DO  | PB4 / MISO (D12, DIP pin 18) |
-| SCK       | PA4 / USCK | PB5 / SCK (D13, DIP pin 19) |
-| CS        | PA7       | PB2 / SS (D10, DIP pin 16) |
-| READY     | PB2 input | PD2 (D2, DIP pin 4) output |
+| MOSI      | PB3 / MOSI (D11, DIP pin 17) output | PB3 / MOSI (D11, DIP pin 17) input |
+| MISO      | PB4 / MISO (D12, DIP pin 18) input  | PB4 / MISO (D12, DIP pin 18) output |
+| SCK       | PB5 / SCK (D13, DIP pin 19) output  | PB5 / SCK (D13, DIP pin 19) input |
+| CS        | PB2 / SS (D10, DIP pin 16) output   | PB2 / SS (D10, DIP pin 16) input |
+| READY     | PD2 (D2, DIP pin 4) input | PD2 (D2, DIP pin 4) output |
 
-`PB0` on the MPU is reserved for its external clock input and must not be used
-or configured as a GPIO. The ATmega328P uses `PB6` and `PB7` for its clock
-source at 20 MHz; do not use those pins as GPIO.
+Both AVRs are driven by a shared external 20 MHz clock line into `XTAL1`
+(`PB6`, DIP pin 9). Only `XTAL1` is used; `XTAL2` (`PB7`, DIP pin 10) is left
+free and usable as a GPIO on both chips. Do not use `PB6` as a GPIO on either
+chip.

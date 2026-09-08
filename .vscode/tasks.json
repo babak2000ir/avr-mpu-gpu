@@ -10,7 +10,7 @@
 				"${workspaceFolder}/mpu.c",
 				"-o",
 				"${workspaceFolder}/mpubin.elf",
-				"-mmcu=attiny84",
+				"-mmcu=atmega328p",
 				"-DF_CPU=20000000UL",
 				"-O0",
 				"-gdwarf-2",

@@ -1,8 +1,8 @@
 # AVR MPU/GU Link
 
-This project is a two-AVR embedded communication prototype. An ATtiny84 (the
-MPU) sends framed graphics or display commands over a USI-to-hardware-SPI link
-to an ATmega328P (the GU). The GU receives commands without doing protocol work
+This project is a two-AVR embedded communication prototype. An ATmega328P (the
+MPU) sends framed graphics or display commands over a hardware-SPI link to
+another ATmega328P (the GU). The GU receives commands without doing protocol work
 in its VGA timing interrupt, queues accepted commands, and makes them available
 to the application loop.
 
@@ -19,19 +19,21 @@ The link is designed for short, non-blocking transactions:
 
 ## Hardware Architecture
 
-The MPU is an ATtiny84/ATtiny84A running at 20 MHz and uses USI in
-software-clocked master mode. The GU is an ATmega328P running at 20 MHz and
+The MPU is an ATmega328P running at 20 MHz and uses its hardware SPI
+peripheral in master mode. The GU is also an ATmega328P running at 20 MHz and
 uses its hardware SPI peripheral in slave mode. The GU handles chip-select and
-SPI transfer-complete events with interrupts.
+SPI transfer-complete events with interrupts. Both AVRs share a single
+external 20 MHz clock signal fed into `XTAL1`; neither chip uses a crystal, so
+`XTAL2` is free for GPIO use on both.
 
 ```mermaid
 flowchart LR
-   D["MPU application<br/>queues commands with MPU_Send()"] --> A["MPU ATtiny84<br/>SPI master<br/>mpumain.c + mpu.c"]
-   A -->|MOSI: PA6 to PB3| B["GU ATmega328P<br/>SPI slave<br/>gumain.c + gu.c"]
-    B -->|MISO / DO: PA5| A
-    A -->|SCK: PA4| B
-    A -->|CS: PA7| B
-   B -->|READY: PB2| A
+   D["MPU application<br/>queues commands with MPU_Send()"] --> A["MPU ATmega328P<br/>SPI master<br/>mpumain.c + mpu.c"]
+   A -->|MOSI: PB3 to PB3| B["GU ATmega328P<br/>SPI slave<br/>gumain.c + gu.c"]
+    B -->|MISO: PB4| A
+    A -->|SCK: PB5| B
+    A -->|CS: PB2 / SS| B
+   B -->|READY: PD2| A
    B --> C["VGA / display application<br/>command processing"]
 ```
 
@@ -39,19 +41,20 @@ flowchart LR
 
 | Signal | MPU pin | GU pin | Direction / purpose |
 | --- | --- | --- | --- |
-| MOSI | PA6 / DI | PB3 / MOSI (D11, DIP pin 17) | MPU to GU data |
-| MISO | PA5 / DO | PB4 / MISO (D12, DIP pin 18) | GU to MPU status/data |
-| SCK | PA4 / USCK | PB5 / SCK (D13, DIP pin 19) | MPU-generated USI clock |
-| CS | PA7 | PB2 / SS (D10, DIP pin 16) | MPU selects a transaction |
-| READY | PB2 input | PD2 (D2, DIP pin 4) output | GU indicates status/data availability |
+| MOSI | PB3 / MOSI (D11, DIP pin 17), output | PB3 / MOSI (D11, DIP pin 17), input | MPU to GU data |
+| MISO | PB4 / MISO (D12, DIP pin 18), input | PB4 / MISO (D12, DIP pin 18), output | GU to MPU status/data |
+| SCK | PB5 / SCK (D13, DIP pin 19), output | PB5 / SCK (D13, DIP pin 19), input | MPU-generated SPI clock |
+| CS | PB2 / SS (D10, DIP pin 16), output | PB2 / SS (D10, DIP pin 16), input | MPU selects a transaction |
+| READY | PD2 (D2, DIP pin 4), input | PD2 (D2, DIP pin 4), output | GU indicates status/data availability |
+| XTAL1 | PB6 (DIP pin 9), external clock in | PB6 (DIP pin 9), external clock in | Shared 20 MHz external clock source |
 | GND | GND | GND | Common reference |
 
 The MPU `READY` input expects an external pull-down. The GU drives `READY`
 high when a status response is available or when it can accept another data
-transaction. `PB0` on the MPU is reserved for its external clock input and
-must not be used or configured as a GPIO. On the ATmega328P, `PB6` and `PB7`
-are the oscillator pins; supply the required 20 MHz clock source there and do
-not use them as GPIO.
+transaction. Both AVRs are clocked from a single shared external 20 MHz
+oscillator wired to `XTAL1` (`PB6`) on each chip; `XTAL2` (`PB7`) is unused by
+the clock source and is free for GPIO on both chips. Do not use `PB6` as a
+GPIO on either chip.
 
 ## Protocol Overview
 
@@ -138,7 +141,7 @@ timing-critical display work from link processing.
 | `Design.txt` | Original wiring notes for the MPU/GU signals. |
 | `protocol.h` | Shared packet structures, protocol constants, queue sizes, timeout/retry limits, and CRC-16/XMODEM helpers. |
 | `mpu.h` | Public MPU master-link API and diagnostic helpers. |
-| `mpu.c` | MPU USI master, GPIO and timer setup, transmit queue, packet framing, status polling, retry state machine, and initialization. |
+| `mpu.c` | MPU hardware SPI master, GPIO and timer setup, transmit queue, packet framing, status polling, retry state machine, and initialization. |
 | `mpumain.c` | MPU entry point, 1 ms timer ISR, and example command submission. |
 | `gu.h` | Public GU slave-link API, command retrieval API, and ISR entry points. |
 | `gu.c` | GU ATmega328P SPI slave, chip-select and transfer-complete handling, packet validation, status generation, sequence tracking, command queue, and initialization. |
@@ -154,7 +157,7 @@ timing-critical display work from link processing.
 
 Run the default **Build all** task. It builds both targets in sequence:
 
-- **Build mpu** compiles `mpumain.c` and `mpu.c` for `attiny84`.
+- **Build mpu** compiles `mpumain.c` and `mpu.c` for `atmega328p`.
 - **Build gu** compiles `gumain.c` and `gu.c` for `atmega328p`.
 
 Both tasks define `F_CPU=20000000UL`, optimize with `-Os`, and write
@@ -165,7 +168,7 @@ Both tasks define `F_CPU=20000000UL`, optimize with `-Os`, and write
 With `avr-gcc` available on `PATH`, the equivalent commands are:
 
 ```sh
-avr-gcc mpumain.c mpu.c -o mpubin.elf -mmcu=attiny84 -DF_CPU=20000000UL -Os
+avr-gcc mpumain.c mpu.c -o mpubin.elf -mmcu=atmega328p -DF_CPU=20000000UL -Os
 avr-gcc gumain.c gu.c -o gubin.elf -mmcu=atmega328p -DF_CPU=20000000UL -Os
 ```
 

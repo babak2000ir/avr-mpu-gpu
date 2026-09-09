@@ -6,3 +6,6 @@ cutting CPU cycles in any way possible in code (even inline assembly for VGA stu
 fix the counter/ready/state machine issue and explore possibility of queueing on GU side
 RAM design
 VGA design
+treeshaking
+text mode
+random sequence / more like ID

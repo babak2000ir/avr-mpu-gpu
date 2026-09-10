@@ -10,19 +10,19 @@
 #define LINK_SOF                0xA5u
 
 /*
- * LINK_STATUS_CMD / the old SPI "status poll" sub-transaction no
- * longer exists on the wire.
+ * The wire no longer carries a separate status-poll SPI transaction.
  *
- * Accept/reject is now signalled by GU on a dedicated RESULT GPIO
- * pin (sampled by MPU at the same moment as READY), instead of a
- * second SPI transaction. This removes an entire CS transaction
- * (and the CS-change + SPI-STC ISR entries that go with it) per
- * command, which is the whole point: it's GU interrupt time that
- * VGA bit-banging can't get back.
+ * The current contract is:
+ *   - GU drives READY to indicate the result is valid or that another
+ *     DATA packet may be sent.
+ *   - On the same moment READY rises, MPU samples RESULT.
+ *   - RESULT=0 => accept, RESULT=1 => reject.
  *
- * The codes below are kept as GU's internal reject *reasons*
- * (see GU_LastRejectReason()) for diagnostics; only the reason
- * is no longer transmitted, just accept/reject as a single bit.
+ * This removes one entire CS transaction per command and keeps the
+ * protocol path out of the VGA timing ISR.
+ *
+ * The codes below remain as GU-local reject reasons for diagnostics
+ * (see GU_LastRejectReason()). They are not transmitted over the link.
  */
 #define LINK_STATUS_NONE        0x00u
 #define LINK_STATUS_ACK         0x06u

@@ -1,14 +1,34 @@
-Wiring:
+ATmega328P MPU/GU link wiring and protocol notes
 
-| Signal    | MPU ATmega328P | GU ATmega328P |
-| --------- | --------- | ---------- |
-| MOSI      | PB3 / MOSI (D11, DIP pin 17) output | PB3 / MOSI (D11, DIP pin 17) input |
-| MISO      | PB4 / MISO (D12, DIP pin 18) input  | PB4 / MISO (D12, DIP pin 18) output |
-| SCK       | PB5 / SCK (D13, DIP pin 19) output  | PB5 / SCK (D13, DIP pin 19) input |
-| CS        | PB2 / SS (D10, DIP pin 16) output   | PB2 / SS (D10, DIP pin 16) input |
-| READY     | PD2 (D2, DIP pin 4) input | PD2 (D2, DIP pin 4) output |
+Hardware clock:
+- Both AVR chips share a single external 20 MHz clock on XTAL1 (PB6, DIP pin 9).
+- Do not use PB6 as GPIO on either chip.
+- XTAL2 (PB7, DIP pin 10) is free for GPIO use unless the design reserves it.
 
-Both AVRs are driven by a shared external 20 MHz clock line into `XTAL1`
-(`PB6`, DIP pin 9). Only `XTAL1` is used; `XTAL2` (`PB7`, DIP pin 10) is left
-free and usable as a GPIO on both chips. Do not use `PB6` as a GPIO on either
-chip.
+SPI wiring:
+
+| Signal | MPU ATmega328P | GU ATmega328P |
+| ------- | -------------- | ------------- |
+| MOSI | PB3 / MOSI (D11, DIP pin 17), output | PB3 / MOSI (D11, DIP pin 17), input |
+| MISO | PB4 / MISO (D12, DIP pin 18), input | PB4 / MISO (D12, DIP pin 18), output |
+| SCK | PB5 / SCK (D13, DIP pin 19), output | PB5 / SCK (D13, DIP pin 19), input |
+| CS | PB2 / SS (D10, DIP pin 16), output | PB2 / SS (D10, DIP pin 16), input |
+| READY | PD2 (D2, DIP pin 4), input | PD2 (D2, DIP pin 4), output |
+| RESULT | PB7 (DIP pin 13), input | PD3 (D3, DIP pin 5) by default, output |
+| GND | GND | GND |
+
+Link contract:
+- The MPU sends DATA packets over SPI.
+- The GU raises READY when it has accepted the packet or when it is ready for the
+  next transaction.
+- When READY goes high, the MPU samples RESULT. RESULT=0 means ACCEPT and
+  RESULT=1 means REJECT.
+- The wire carries a single accept/reject bit only; detailed rejection reasons are
+  GU-local diagnostics and are not transmitted back to the MPU.
+- Packet framing: SOF | SEQ | LEN | TYPE | PAYLOAD | CRC16 low | CRC16 high.
+- CRC is CRC-16/XMODEM over SEQ, LEN, TYPE, and payload bytes.
+
+The implementation in mpu.c and gu.c is the source of truth for the pin mapping
+and the READY/RESULT handshake. If the VGA board reserves a different GPIO for
+RESULT on the GU, the pin can be reassigned as long as the MPU side samples the
+same signal at the same READY edge.

@@ -28,6 +28,21 @@
 
 #define READY_BIT        PD2
 
+/*
+ * RESULT output: accept/reject of the last DATA transaction,
+ * valid the instant READY goes high. Replaces the old SPI
+ * "status poll" sub-transaction -- see protocol.h.
+ *
+ * PD3 is a placeholder. Point this at whatever GPIO is actually
+ * free on your GU board (i.e. not used by the VGA bit-banging).
+ */
+#define RESULT_PORT      PORTD
+#define RESULT_DDR       DDRD
+#define RESULT_BIT       PD3
+
+#define LINK_RESULT_ACCEPT   0
+#define LINK_RESULT_REJECT   1
+
 
 /* ============================================================
  * Packet RX buffer
@@ -52,23 +67,32 @@ static volatile bool rx_transaction_active = false;
 
 static volatile bool rx_transaction_complete = false;
 
-static volatile bool rx_is_status_transaction = false;
-
 static volatile bool rx_protocol_error = false;
 
 
 /* ============================================================
- * Status response
+ * Result / reason tracking
  * ============================================================ */
 
-static volatile uint8_t status_to_send = LINK_STATUS_NONE;
-static volatile uint8_t status_sequence = 0;
-
+/*
+ * The wire only ever carries a single accept/reject bit (the
+ * RESULT pin). This keeps the *reason* around purely for local
+ * diagnostics (see GU_LastRejectReason()) -- it is never sent
+ * to the MPU.
+ */
+static volatile uint8_t last_reject_reason = LINK_STATUS_NONE;
 
 /*
- * Status response transaction has completed.
+ * Set when GU had to reject a packet purely because its
+ * instruction queue was full. READY is deliberately withheld
+ * until command_count drops again, at which point GU_Service()
+ * raises it on its own -- see gu_recheck_queue_space() below.
+ *
+ * This also fixes a latent issue in the original design: nothing
+ * ever re-armed READY once it was held low for a full queue,
+ * even after the application drained commands via GU_GetCommand().
  */
-static volatile bool status_transaction_complete = false;
+static bool queue_space_wait = false;
 
 
 /* ============================================================
@@ -114,6 +138,30 @@ static inline void gu_ready_low(void)
     PORTD &= ~_BV(READY_BIT);
 }
 
+
+/* ============================================================
+ * RESULT control
+ * ============================================================ */
+
+/*
+ * IMPORTANT: always set RESULT *before* raising READY in any
+ * given code path. MPU only samples RESULT once it observes
+ * READY go high, and AVR GPIO writes execute strictly in program
+ * order, so as long as RESULT is written first there is no race.
+ */
+
+static inline void gu_result_accept(void)
+{
+    RESULT_PORT &= ~_BV(RESULT_BIT);
+}
+
+static inline void gu_result_reject(uint8_t reason)
+{
+    last_reject_reason = reason;
+    RESULT_PORT |= _BV(RESULT_BIT);
+}
+
+
 /* ============================================================
  * SPI helpers
  * ============================================================ */
@@ -155,15 +203,11 @@ void GU_CS_ISR(void)
 
         rx_transaction_complete = false;
 
-        status_transaction_complete = false;
-
         rx_index = 0;
 
         rx_expected_length = 0;
 
         rx_protocol_error = false;
-
-        rx_is_status_transaction = false;
 
         /*
          * GU cannot accept another DATA packet until this
@@ -172,7 +216,7 @@ void GU_CS_ISR(void)
         gu_ready_low();
 
         /*
-         * First byte received determines transaction type.
+         * First byte received must be SOF.
          */
         SPDR = 0x00;
 
@@ -195,10 +239,7 @@ void GU_CS_ISR(void)
         /*
          * Tell main loop that something needs processing.
          */
-        if (rx_is_status_transaction)
-            status_transaction_complete = true;
-        else
-            rx_transaction_complete = true;
+        rx_transaction_complete = true;
     }
 }
 
@@ -240,34 +281,17 @@ void GU_SPI_STC_ISR(void)
 
     if (rx_index == 0)
     {
-        if (value == LINK_STATUS_CMD)
+        if (value == LINK_SOF)
         {
             /*
-             * Status request.
-             */
-            rx_is_status_transaction = true;
-
-            /*
-             * Next received byte gets status.
-             */
-            SPDR = status_to_send;
-        }
-        else if (value == LINK_SOF)
-        {
-            /*
-             * DATA transaction.
-             */
-            rx_is_status_transaction = false;
-
-            /*
-             * Next byte will be SEQ.
+             * DATA transaction. Next byte will be SEQ.
              */
             SPDR = 0x00;
         }
         else
         {
             /*
-             * Unknown transaction.
+             * Unknown/garbled transaction.
              */
             rx_protocol_error = true;
 
@@ -275,37 +299,6 @@ void GU_SPI_STC_ISR(void)
         }
 
         rx_index = 1;
-
-        return;
-    }
-
-
-    /* --------------------------------------------------------
-     * STATUS transaction
-     * -------------------------------------------------------- */
-
-    if (rx_is_status_transaction)
-    {
-        /*
-         * rx_index == 1:
-         *
-         * The master has just clocked STATUS.
-         *
-         * Next byte should return sequence.
-         */
-        if (rx_index == 1)
-        {
-            SPDR = status_sequence;
-        }
-        else
-        {
-            /*
-             * Extra bytes get zero.
-             */
-            SPDR = 0x00;
-        }
-
-        rx_index++;
 
         return;
     }
@@ -489,6 +482,14 @@ static void gu_spi_init(void)
 
     gu_ready_low();
 
+    /*
+     * RESULT output. Value is don't-care until the first DATA
+     * transaction completes (MPU never samples it before then).
+     */
+    RESULT_DDR |= _BV(RESULT_BIT);
+
+    gu_result_reject(LINK_STATUS_NONE);
+
 
     /*
     * Enable PB2 pin-change interrupt.
@@ -607,8 +608,7 @@ static void process_received_data(void)
      */
     if (rx_protocol_error)
     {
-        status_to_send = LINK_STATUS_NACK_FORMAT;
-        status_sequence = 0;
+        gu_result_reject(LINK_STATUS_NACK_FORMAT);
 
         gu_ready_high();
 
@@ -620,8 +620,7 @@ static void process_received_data(void)
      */
     if (rx_buffer[1] > LINK_MAX_PAYLOAD)
     {
-        status_to_send = LINK_STATUS_NACK_FORMAT;
-        status_sequence = rx_buffer[0];
+        gu_result_reject(LINK_STATUS_NACK_FORMAT);
 
         gu_ready_high();
 
@@ -629,8 +628,6 @@ static void process_received_data(void)
     }
 
     make_received_packet(&packet);
-
-    status_sequence = packet.seq;
 
     calculated_crc = link_packet_crc(&packet);
     received = received_crc();
@@ -640,7 +637,7 @@ static void process_received_data(void)
      */
     if (calculated_crc != received)
     {
-        status_to_send = LINK_STATUS_NACK_CRC;
+        gu_result_reject(LINK_STATUS_NACK_CRC);
 
         /*
          * Do NOT modify expected_sequence.
@@ -667,9 +664,9 @@ static void process_received_data(void)
          *
          * DO NOT execute it again.
          *
-         * Just ACK it again.
+         * Just accept it again.
          */
-        status_to_send = LINK_STATUS_ACK;
+        gu_result_accept();
 
         gu_ready_high();
 
@@ -683,7 +680,7 @@ static void process_received_data(void)
 
     if (packet.seq != expected_sequence)
     {
-        status_to_send = LINK_STATUS_NACK_SEQ;
+        gu_result_reject(LINK_STATUS_NACK_SEQ);
 
         gu_ready_high();
 
@@ -702,10 +699,15 @@ static void process_received_data(void)
          *
          * We do NOT acknowledge a packet that we haven't
          * stored.
+         *
+         * Do NOT raise READY yet either -- there is nowhere
+         * for a retransmit to go until a slot frees up.
+         * GU_Service() will raise READY on its own once
+         * command_count drops (see gu_recheck_queue_space()).
          */
-        status_to_send = LINK_STATUS_NACK_BUSY;
+        gu_result_reject(LINK_STATUS_NACK_BUSY);
 
-        gu_ready_high();
+        queue_space_wait = true;
 
         return;
     }
@@ -722,98 +724,50 @@ static void process_received_data(void)
     expected_sequence++;
 
     /*
-     * ACK means:
+     * Accepted means:
      *
      * "The GU has safely accepted this command into its
      *  command queue."
      *
      * It does NOT mean the command has already executed.
      */
-    status_to_send = LINK_STATUS_ACK;
+    gu_result_accept();
 
     /*
-     * Status is now available.
+     * Only invite the next transmission if there is actually
+     * room for it. If this push just filled the last slot,
+     * withhold READY and let it be raised once space frees --
+     * same deferred-ready mechanism as the busy case above.
      */
-    gu_ready_high();
+    if (command_count < GU_INSTRUCTION_QUEUE_SIZE)
+    {
+        gu_ready_high();
+    }
+    else
+    {
+        queue_space_wait = true;
+    }
 }
 
 
 /* ============================================================
- * Process STATUS transaction completion
+ * Re-arm READY once queue space frees up
  * ============================================================ */
 
-static void process_status_transaction(void)
+/*
+ * Needed whenever READY was withheld because
+ * GU_INSTRUCTION_QUEUE_SIZE was full at accept/reject time.
+ * Call frequently (GU_Service() does, every call) so READY
+ * comes back up as soon as the application drains a command
+ * via GU_GetCommand(), instead of staying low forever.
+ */
+static void gu_recheck_queue_space(void)
 {
-    /*
-     * STATUS has now been clocked out.
-     *
-     * Decide what READY means for the next transaction.
-     */
-
-    status_transaction_complete = false;
-
-    /*
-     * If the previous result was NACK_BUSY, keep the same
-     * status available. The MPU will poll again.
-     */
-    if (status_to_send == LINK_STATUS_NACK_BUSY)
+    if (queue_space_wait && command_count < GU_INSTRUCTION_QUEUE_SIZE)
     {
-        if (command_count < GU_INSTRUCTION_QUEUE_SIZE)
-        {
-            /*
-             * Queue space is now available.
-             *
-             * But the packet has NOT been accepted yet.
-             *
-             * We want the MPU to retransmit DATA.
-             */
-            status_to_send = LINK_STATUS_NACK_BUSY;
+        queue_space_wait = false;
 
-            gu_ready_high();
-        }
-        else
-        {
-            gu_ready_low();
-        }
-
-        return;
-    }
-
-
-    /*
-     * For ACK:
-     *
-     * the MPU can send the next packet.
-     */
-    if (status_to_send == LINK_STATUS_ACK)
-    {
-        if (command_count < GU_INSTRUCTION_QUEUE_SIZE)
-            gu_ready_high();
-        else
-            gu_ready_low();
-
-        /*
-         * Status can remain ACK because a DATA transaction
-         * will overwrite the next response.
-         */
-        return;
-    }
-
-
-    /*
-     * CRC/format/sequence failure:
-     *
-     * READY means:
-     *
-     * "Send the DATA transaction again."
-     */
-    if (status_to_send == LINK_STATUS_NACK_CRC ||
-        status_to_send == LINK_STATUS_NACK_FORMAT ||
-        status_to_send == LINK_STATUS_NACK_SEQ)
-    {
         gu_ready_high();
-
-        return;
     }
 }
 
@@ -830,9 +784,7 @@ static void process_status_transaction(void)
 void GU_Service(void)
 {
     /*
-     * DATA transaction finished.
-     *
-     * Validate it here.
+     * DATA transaction finished. Validate it here.
      */
     if (rx_transaction_complete)
     {
@@ -848,16 +800,11 @@ void GU_Service(void)
         return;
     }
 
-
     /*
-     * STATUS transaction finished.
+     * Pick READY back up if it was withheld for a full queue
+     * and the application has since drained some commands.
      */
-    if (status_transaction_complete)
-    {
-        process_status_transaction();
-
-        return;
-    }
+    gu_recheck_queue_space();
 }
 
 
@@ -906,16 +853,14 @@ void GU_Init(void)
     have_last_sequence = false;
     last_accepted_sequence = 0;
 
-    status_to_send = LINK_STATUS_NONE;
-    status_sequence = 0;
+    last_reject_reason = LINK_STATUS_NONE;
+    queue_space_wait = false;
 
     rx_index = 0;
     rx_expected_length = 0;
 
     rx_transaction_active = false;
     rx_transaction_complete = false;
-    status_transaction_complete = false;
-    rx_is_status_transaction = false;
     rx_protocol_error = false;
 
     gu_spi_init();
@@ -949,4 +894,15 @@ uint8_t GU_CommandQueueCount(void)
 uint8_t GU_ExpectedSequence(void)
 {
     return expected_sequence;
+}
+
+
+/*
+ * Reason the most recent rejected packet was rejected. This is
+ * GU-local diagnostic information -- it is never transmitted to
+ * the MPU (which only sees accept/reject on the RESULT pin).
+ */
+uint8_t GU_LastRejectReason(void)
+{
+    return last_reject_reason;
 }

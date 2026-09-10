@@ -9,3 +9,4 @@ VGA design
 treeshaking
 text mode
 random sequence / more like ID
+crc simplification and lookup

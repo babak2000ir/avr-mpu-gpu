@@ -41,14 +41,24 @@
 #define CS_DDR           DDRB
 #define CS_BIT           PB2
 
-/*
- * PB6 (XTAL1) is the external clock input and must not be used as GPIO.
- * The board is clocked externally, so PB7 (XTAL2) is free for GPIO use.
- */
 #define READY_PORT       PORTD
 #define READY_DDR        DDRD
 #define READY_PIN_REG    PIND
 #define READY_PIN        PD2
+
+/*
+ * RESULT input: accept/reject of the last DATA transaction,
+ * valid the instant READY reads high. Replaces the old SPI
+ * "status poll" sub-transaction -- see protocol.h.
+ *
+ * PB6 (XTAL1) is the external clock input and must not be used
+ * as GPIO. The board is clocked externally, so PB7 (XTAL2) is
+ * free for GPIO use -- used here for RESULT.
+ */
+#define RESULT_PORT      PORTB
+#define RESULT_DDR       DDRB
+#define RESULT_PIN_REG   PINB
+#define RESULT_PIN       PB7
 
 
 /* ============================================================
@@ -127,6 +137,16 @@ static inline bool gu_ready(void)
 }
 
 
+/*
+ * Only meaningful once gu_ready() reads true -- see protocol.h
+ * for the ordering guarantee this relies on.
+ */
+static inline bool gu_result_is_reject(void)
+{
+    return (RESULT_PIN_REG & _BV(RESULT_PIN)) != 0;
+}
+
+
 static inline void cs_low(void)
 {
     CS_PORT &= ~_BV(CS_BIT);
@@ -189,6 +209,15 @@ static void mpu_spi_init(void)
      */
     READY_DDR &= ~_BV(READY_PIN);
     READY_PORT &= ~_BV(READY_PIN);
+
+    /*
+     * RESULT input.
+     *
+     * No internal pull-up -- use an external pull-down on the
+     * GU RESULT line, matching READY.
+     */
+    RESULT_DDR &= ~_BV(RESULT_PIN);
+    RESULT_PORT &= ~_BV(RESULT_PIN);
 
     /*
      * Master mode, SPI enabled, clock = F_CPU / 4.
@@ -292,8 +321,9 @@ bool MPU_Send(uint8_t type,
 typedef enum
 {
     MPU_LINK_IDLE = 0,
-    MPU_LINK_WAIT_STATUS,
-    MPU_LINK_RETRY_WAIT
+    MPU_LINK_WAIT_RESULT,
+    MPU_LINK_RETRY_WAIT,
+    MPU_LINK_BACKOFF
 } MpuLinkState;
 
 static MpuLinkState link_state = MPU_LINK_IDLE;
@@ -342,43 +372,41 @@ static void send_data_packet(const LinkPacket *p)
 
 
 /* ============================================================
- * Poll GU status
+ * Communication service
  * ============================================================ */
 
-static uint8_t poll_status(uint8_t *sequence)
+/*
+ * Give up on the fast retry burst and drop into a slow, bounded
+ * cooldown instead of freezing.
+ *
+ * Deliberately does NOT touch the queue or the packet's sequence
+ * number: the same packet is retried again after the backoff
+ * period, forever, at a rate the link can't be hurt by. This is
+ * what makes the state machine unable to get permanently stuck --
+ * every path always either makes progress or schedules a future
+ * retry.
+ */
+static void enter_backoff(uint32_t now)
 {
-    uint8_t status;
-    uint8_t seq;
-
-    cs_low();
-
-    _delay_us(2);
-
-    /*
-     * First byte tells GU this is a status transaction.
-     */
-    spi_master_transfer(LINK_STATUS_CMD);
-
-    /*
-     * GU responds with:
-     *
-     * byte 1 = status
-     * byte 2 = sequence
-     */
-    status = spi_master_transfer(0x00);
-    seq    = spi_master_transfer(0x00);
-
-    cs_high();
-
-    *sequence = seq;
-
-    return status;
+    retry_count = 0;
+    status_deadline = now + LINK_BACKOFF_MS;
+    link_state = MPU_LINK_BACKOFF;
 }
 
 
-/* ============================================================
- * Communication service
- * ============================================================ */
+static void enter_retry_or_backoff(uint32_t now)
+{
+    if (retry_count < LINK_MAX_RETRIES)
+    {
+        retry_count++;
+        link_state = MPU_LINK_RETRY_WAIT;
+    }
+    else
+    {
+        enter_backoff(now);
+    }
+}
+
 
 /*
  * Call this VERY frequently from the MPU main loop.
@@ -424,24 +452,20 @@ void MPU_Service(void)
 
             status_deadline = now + LINK_ACK_TIMEOUT_MS;
 
-            link_state = MPU_LINK_WAIT_STATUS;
+            link_state = MPU_LINK_WAIT_RESULT;
 
             return;
 
 
-        case MPU_LINK_WAIT_STATUS:
+        case MPU_LINK_WAIT_RESULT:
 
             /*
-             * GU uses READY to tell us that its status response
-             * is ready.
+             * GU raises READY the instant RESULT is valid for
+             * the packet we just sent -- no separate status
+             * transaction needed, just read the pin.
              */
             if (gu_ready())
             {
-                uint8_t status_seq;
-                uint8_t status;
-
-                status = poll_status(&status_seq);
-
                 p = queue_head();
 
                 if (p == NULL)
@@ -450,110 +474,42 @@ void MPU_Service(void)
                     return;
                 }
 
-                /*
-                 * Never accept an ACK for the wrong packet.
-                 */
-                if (status_seq != p->seq)
+                if (gu_result_is_reject())
                 {
                     /*
-                     * Something is wrong with synchronization.
-                     *
-                     * Do not remove the packet.
+                     * CRC, format, sequence, or busy rejection --
+                     * MPU doesn't need to know which. All of them
+                     * mean the same thing: retransmit this exact
+                     * packet, unchanged, and do not pop it.
                      */
-                    if (retry_count < LINK_MAX_RETRIES)
-                    {
-                        retry_count++;
-                        link_state = MPU_LINK_RETRY_WAIT;
-                    }
+                    enter_retry_or_backoff(now);
 
                     return;
                 }
 
-                switch (status)
-                {
-                    case LINK_STATUS_ACK:
+                /*
+                 * Accepted. NOW, and only now, remove it.
+                 */
+                queue_pop();
 
-                        /*
-                         * Packet is accepted by GU.
-                         *
-                         * NOW, and only now, remove it.
-                         */
-                        queue_pop();
+                retry_count = 0;
 
-                        retry_count = 0;
+                link_state = MPU_LINK_IDLE;
 
-                        link_state = MPU_LINK_IDLE;
-
-                        return;
-
-
-                    case LINK_STATUS_NACK_CRC:
-
-                    case LINK_STATUS_NACK_FORMAT:
-
-                        /*
-                         * Same packet must be transmitted again.
-                         */
-                        if (retry_count < LINK_MAX_RETRIES)
-                        {
-                            retry_count++;
-
-                            link_state = MPU_LINK_RETRY_WAIT;
-                        }
-
-                        return;
-
-
-                    case LINK_STATUS_NACK_BUSY:
-
-                        /*
-                         * GU couldn't accept it yet.
-                         *
-                         * Don't resend unnecessarily.
-                         *
-                         * Wait for another READY.
-                         */
-                        status_deadline =
-                            now + LINK_ACK_TIMEOUT_MS;
-
-                        return;
-
-
-                    case LINK_STATUS_NACK_SEQ:
-
-                    default:
-
-                        /*
-                         * Protocol synchronization error.
-                         */
-                        if (retry_count < LINK_MAX_RETRIES)
-                        {
-                            retry_count++;
-
-                            link_state = MPU_LINK_RETRY_WAIT;
-                        }
-
-                        return;
-                }
+                return;
             }
 
             /*
-             * GU hasn't produced a status yet.
+             * GU hasn't raised READY yet.
              *
-             * Do NOT block.
+             * Do NOT block -- but if it takes too long (GU
+             * wedged, reset, or the READY edge was somehow
+             * missed), the result may simply have been lost.
+             * We deliberately do NOT remove the packet.
              */
             if ((int32_t)(now - status_deadline) >= 0)
             {
-                /*
-                 * ACK may simply have been lost.
-                 *
-                 * We deliberately DO NOT remove the packet.
-                 */
-                if (retry_count < LINK_MAX_RETRIES)
-                {
-                    retry_count++;
-                    link_state = MPU_LINK_RETRY_WAIT;
-                }
+                enter_retry_or_backoff(now);
             }
 
             return;
@@ -582,10 +538,46 @@ void MPU_Service(void)
              */
             send_data_packet(p);
 
-            status_deadline =
-                now + LINK_ACK_TIMEOUT_MS;
+            status_deadline = now + LINK_ACK_TIMEOUT_MS;
 
-            link_state = MPU_LINK_WAIT_STATUS;
+            link_state = MPU_LINK_WAIT_RESULT;
+
+            return;
+
+
+        case MPU_LINK_BACKOFF:
+
+            /*
+             * Slow cooldown after a burst of fast retries failed.
+             * Never gives up outright -- just waits longer between
+             * attempts so a jammed/reset GU has room to recover.
+             */
+            if ((int32_t)(now - status_deadline) < 0)
+                return;
+
+            if (!gu_ready())
+            {
+                /*
+                 * Still not back. Keep waiting at the same slow
+                 * rate rather than spinning.
+                 */
+                status_deadline = now + LINK_BACKOFF_MS;
+                return;
+            }
+
+            p = queue_head();
+
+            if (p == NULL)
+            {
+                link_state = MPU_LINK_IDLE;
+                return;
+            }
+
+            send_data_packet(p);
+
+            status_deadline = now + LINK_ACK_TIMEOUT_MS;
+
+            link_state = MPU_LINK_WAIT_RESULT;
 
             return;
     }
@@ -611,6 +603,18 @@ uint8_t MPU_QueuedPackets(void)
 uint8_t MPU_RetryCount(void)
 {
     return retry_count;
+}
+
+
+/*
+ * True once the head-of-queue packet has exhausted a fast-retry
+ * burst and dropped into the slow backoff cooldown. Link is not
+ * dead -- it will keep trying -- but something is wrong and the
+ * application may want to surface that (diagnostic LED, log, etc).
+ */
+bool MPU_LinkDegraded(void)
+{
+    return link_state == MPU_LINK_BACKOFF;
 }
 
 

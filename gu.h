@@ -18,6 +18,7 @@ void GU_SPI_STC_ISR(void);
 
 uint8_t GU_CommandQueueCount(void);
 uint8_t GU_ExpectedSequence(void);
+uint8_t GU_LastRejectReason(void);
 
 /* Backwards compatibility aliases */
 #define GU_Link_Init     GU_Init

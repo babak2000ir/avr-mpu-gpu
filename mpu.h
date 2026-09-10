@@ -17,6 +17,7 @@ void MPU_TimerTick(void);
 bool MPU_IsBusy(void);
 uint8_t MPU_QueuedPackets(void);
 uint8_t MPU_RetryCount(void);
+bool MPU_LinkDegraded(void);
 
 /*
  * Graphics Command Queueing Helpers

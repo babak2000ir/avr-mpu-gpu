@@ -8,8 +8,22 @@
  * ============================================================ */
 
 #define LINK_SOF                0xA5u
-#define LINK_STATUS_CMD         0x5Au
 
+/*
+ * LINK_STATUS_CMD / the old SPI "status poll" sub-transaction no
+ * longer exists on the wire.
+ *
+ * Accept/reject is now signalled by GU on a dedicated RESULT GPIO
+ * pin (sampled by MPU at the same moment as READY), instead of a
+ * second SPI transaction. This removes an entire CS transaction
+ * (and the CS-change + SPI-STC ISR entries that go with it) per
+ * command, which is the whole point: it's GU interrupt time that
+ * VGA bit-banging can't get back.
+ *
+ * The codes below are kept as GU's internal reject *reasons*
+ * (see GU_LastRejectReason()) for diagnostics; only the reason
+ * is no longer transmitted, just accept/reject as a single bit.
+ */
 #define LINK_STATUS_NONE        0x00u
 #define LINK_STATUS_ACK         0x06u
 #define LINK_STATUS_NACK_CRC    0x15u
@@ -35,10 +49,20 @@
 #define LINK_MAX_RETRIES        5u
 
 /*
- * Time between sending DATA and expecting GU to make
- * a STATUS transaction available.
+ * Time between sending DATA and expecting GU to raise READY
+ * with the result of that transaction.
  */
 #define LINK_ACK_TIMEOUT_MS     10u
+
+/*
+ * Once LINK_MAX_RETRIES fast retries have been exhausted for a
+ * packet, MPU stops hammering the link and backs off to this
+ * period between attempts instead. It NEVER gives up on the
+ * packet outright (that would desync the sequence numbers with
+ * GU permanently) -- it just retries more slowly so a jammed
+ * or reset GU has room to recover without the MPU spinning.
+ */
+#define LINK_BACKOFF_MS          250u
 
 /* ============================================================
  * Graphic Command Types & Constants

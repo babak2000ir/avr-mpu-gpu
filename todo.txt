@@ -1,10 +1,14 @@
 documentation Schematid diagram
 inline funtion to cut cpu cycles
 cutting CPU cycles in any way possible in code (even inline assembly for VGA stuff)
-fix the counter/ready/state machine issue and explore possibility of queueing on GU side
+explore possibility of queueing on GU side
 RAM design
 VGA design
-treeshaking
 text mode
 random sequence / more like ID
 crc simplification and lookup
+
+--done
+documentation mistakes
+treeshaking
+fix the counter/ready/state machine issue

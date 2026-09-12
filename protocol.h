@@ -74,13 +74,6 @@
 #define CMD_SET_CIRCLE          0x04u
 #define CMD_SET_STRING          0x05u
 
-/* Aliases */
-#define CMD_SETPIXEL            CMD_SET_PIXEL
-#define CMD_SETLINE             CMD_SET_LINE
-#define CMD_SETRECT             CMD_SET_RECT
-#define CMD_SETCIRCLE           CMD_SET_CIRCLE
-#define CMD_SETSTRING           CMD_SET_STRING
-
 /* Color packing/unpacking helpers (4 bits border / low, 4 bits fill / high) */
 #define MAKE_COLOR_BF(border, fill)  (((uint8_t)((fill) & 0x0Fu) << 4) | ((uint8_t)(border) & 0x0Fu))
 #define COLOR_GET_BORDER(c)          ((uint8_t)((c) & 0x0Fu))
@@ -233,11 +226,6 @@ static inline uint16_t link_packet_crc(const LinkPacket *p)
         crc = crc16_update(crc, p->data[i]);
 
     return crc;
-}
-
-static inline uint16_t calc_packet_crc(const LinkPacket *p)
-{
-    return link_packet_crc(p);
 }
 
 #endif

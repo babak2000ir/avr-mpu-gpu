@@ -63,8 +63,6 @@ static volatile uint8_t rx_index = 0;
 
 static volatile uint8_t rx_expected_length = 0;
 
-static volatile bool rx_transaction_active = false;
-
 static volatile bool rx_transaction_complete = false;
 
 static volatile bool rx_protocol_error = false;
@@ -73,14 +71,6 @@ static volatile bool rx_protocol_error = false;
 /* ============================================================
  * Result / reason tracking
  * ============================================================ */
-
-/*
- * The wire only ever carries a single accept/reject bit (the
- * RESULT pin). This keeps the *reason* around purely for local
- * diagnostics (see GU_LastRejectReason()) -- it is never sent
- * to the MPU.
- */
-static volatile uint8_t last_reject_reason = LINK_STATUS_NONE;
 
 /*
  * Set when GU had to reject a packet purely because its
@@ -157,7 +147,7 @@ static inline void gu_result_accept(void)
 
 static inline void gu_result_reject(uint8_t reason)
 {
-    last_reject_reason = reason;
+    (void)reason;
     RESULT_PORT |= _BV(RESULT_BIT);
 }
 
@@ -199,8 +189,6 @@ void GU_CS_ISR(void)
          * Start new SPI transaction.
          */
 
-        rx_transaction_active = true;
-
         rx_transaction_complete = false;
 
         rx_index = 0;
@@ -228,8 +216,6 @@ void GU_CS_ISR(void)
          *
          * End of transaction.
          */
-
-        rx_transaction_active = false;
 
         /*
          * MISO can be driven low while idle.
@@ -853,13 +839,11 @@ void GU_Init(void)
     have_last_sequence = false;
     last_accepted_sequence = 0;
 
-    last_reject_reason = LINK_STATUS_NONE;
     queue_space_wait = false;
 
     rx_index = 0;
     rx_expected_length = 0;
 
-    rx_transaction_active = false;
     rx_transaction_complete = false;
     rx_protocol_error = false;
 
@@ -881,28 +865,3 @@ void GU_Init(void)
 }
 
 
-/* ============================================================
- * Optional diagnostics
- * ============================================================ */
-
-uint8_t GU_CommandQueueCount(void)
-{
-    return command_count;
-}
-
-
-uint8_t GU_ExpectedSequence(void)
-{
-    return expected_sequence;
-}
-
-
-/*
- * Reason the most recent rejected packet was rejected. This is
- * GU-local diagnostic information -- it is never transmitted to
- * the MPU (which only sees accept/reject on the RESULT pin).
- */
-uint8_t GU_LastRejectReason(void)
-{
-    return last_reject_reason;
-}

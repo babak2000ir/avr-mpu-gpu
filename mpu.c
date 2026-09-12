@@ -585,40 +585,6 @@ void MPU_Service(void)
 
 
 /* ============================================================
- * Optional status helpers
- * ============================================================ */
-
-bool MPU_IsBusy(void)
-{
-    return link_state != MPU_LINK_IDLE;
-}
-
-
-uint8_t MPU_QueuedPackets(void)
-{
-    return tx_count;
-}
-
-
-uint8_t MPU_RetryCount(void)
-{
-    return retry_count;
-}
-
-
-/*
- * True once the head-of-queue packet has exhausted a fast-retry
- * burst and dropped into the slow backoff cooldown. Link is not
- * dead -- it will keep trying -- but something is wrong and the
- * application may want to surface that (diagnostic LED, log, etc).
- */
-bool MPU_LinkDegraded(void)
-{
-    return link_state == MPU_LINK_BACKOFF;
-}
-
-
-/* ============================================================
  * MPU initialization
  * ============================================================ */
 
